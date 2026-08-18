@@ -143,13 +143,14 @@ def write_musicxml(score: dict, path: Path) -> Path:
                 dt2 = ET.SubElement(d2, "direction-type")
                 ET.SubElement(dt2, "words").text = "Swing 8ths"
 
-        total_up = _write_voice(m, bar["voices"].get(K.UP, []), voice=1, stem="up")
+        total_up = _write_voice(m, bar["voices"].get(K.UP, []), voice=1, stem="up",
+                                _bar_beats=score["beatsPerBar"])
         down = bar["voices"].get(K.DOWN, [])
         if down:
             if total_up:
                 bk = ET.SubElement(m, "backup")
                 ET.SubElement(bk, "duration").text = str(total_up)
-            _write_voice(m, down, voice=2, stem="down")
+            _write_voice(m, down, voice=2, stem="down", _bar_beats=score["beatsPerBar"])
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _indent(root)
@@ -161,7 +162,8 @@ def write_musicxml(score: dict, path: Path) -> Path:
     return path
 
 
-def _write_voice(measure, elems: list[dict], voice: int, stem: str) -> int:
+def _write_voice(measure, elems: list[dict], voice: int, stem: str,
+                 _bar_beats: int = 4) -> int:
     total = 0
     groups = _tuplet_groups(elems)
     for idx, e in enumerate(elems):
@@ -171,6 +173,14 @@ def _write_voice(measure, elems: list[dict], voice: int, stem: str) -> int:
             n = ET.SubElement(measure, "note")
             if e.get("hidden"):
                 n.set("print-object", "no")
+            if e.get("barRest"):
+                # whole-measure rest: duration = the actual bar, no note type
+                bar_div = DIVISIONS * _bar_beats
+                total += bar_div - dur
+                ET.SubElement(n, "rest", measure="yes")
+                ET.SubElement(n, "duration").text = str(bar_div)
+                ET.SubElement(n, "voice").text = str(voice)
+                continue
             ET.SubElement(n, "rest")
             ET.SubElement(n, "duration").text = str(dur)
             ET.SubElement(n, "voice").text = str(voice)

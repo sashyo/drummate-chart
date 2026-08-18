@@ -99,6 +99,11 @@ def build(q: QScore, meta: dict) -> dict:
 
 
 def _build_voice(notes, bar, q: QScore) -> list[dict]:
+    if not notes:
+        # one whole-bar rest, the way an empty bar is actually engraved
+        e = _rest("w", 0, 0, 0, bar, q)
+        e["barRest"] = True
+        return [e]
     n = bar.subdivision
     table = _TABLES.get(n, _TABLES[4])
     slot_ticks = PPQ // n

@@ -81,6 +81,9 @@ function splitCount(count, table, rest=false){
 }
 
 function layoutVoice(hits, subdiv, beatsPerBar){
+  /* a voice with nothing to play gets one whole-bar rest, not a stack of quarters */
+  if(!hits.length)
+    return [{type:'rest', dur:'w', dots:0, beat:0, keys:[], insts:[], barRest:true}];
   const table=TABLES[subdiv]||TABLES[4];
   const slotTicks=PPQ/subdiv;
   const elems=[];
