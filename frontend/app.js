@@ -335,7 +335,10 @@ function legendCell(container, label, build){
     const ctx=r.getContext();
     const stave=new VF.Stave(2, 0, 106, {num_lines:5});
     stave.setContext(ctx).draw();
-    VF.Formatter.FormatAndDraw(ctx, stave, build());
+    const res=build();
+    const notes=Array.isArray(res)?res:res.notes;
+    VF.Formatter.FormatAndDraw(ctx, stave, notes);
+    if(res.post) res.post.forEach(d=>d.setContext(ctx).draw());
   }catch(_){ cell.remove(); }
 }
 
@@ -365,12 +368,37 @@ function renderLegend(host){
     const gn=new VF.GraceNote({keys:['c/5'], duration:'8', slash:true, clef:'percussion'});
     n.addModifier(new VF.GraceNoteGroup([gn], false), 0);
   }]));
+
+  /* rhythm symbols */
+  const hat=(dur)=>new VF.StaveNote({keys:[DRUMS.hihat.key], duration:dur,
+    clef:'percussion', stem_direction:VF.Stem.UP});
+  legendCell(div, 'Hit together', ()=>[new VF.StaveNote({
+    keys:[DRUMS.snare.key, DRUMS.hihat.key], duration:'q',
+    clef:'percussion', stem_direction:VF.Stem.UP})]);
+  legendCell(div, '8ths - 1 beam', ()=>{
+    const notes=[hat('8'),hat('8')];
+    return {notes, post:[new VF.Beam(notes)]};
+  });
+  legendCell(div, '16ths - 2 beams', ()=>{
+    const notes=[hat('16'),hat('16'),hat('16'),hat('16')];
+    return {notes, post:[new VF.Beam(notes)]};
+  });
+  legendCell(div, 'Triplet', ()=>{
+    const notes=[hat('8'),hat('8'),hat('8')];
+    return {notes, post:[new VF.Beam(notes),
+      new VF.Tuplet(notes,{num_notes:3, notes_occupied:2, bracketed:true, ratioed:false})]};
+  });
+  legendCell(div, 'Rests: \u00bc + \u215b beat', ()=>[
+    new VF.StaveNote({keys:['b/4'], duration:'qr', clef:'percussion'}),
+    new VF.StaveNote({keys:['b/4'], duration:'8r', clef:'percussion'})]);
+  legendCell(div, 'Silent bar', ()=>[
+    new VF.StaveNote({keys:['b/4'], duration:'wr', clef:'percussion'})]);
 }
 
 function renderScore(){
   const host=$('#score');
   host.innerHTML=''; S.systems=[];
-  if($('#opt-key')?.checked) renderLegend(host);
+  if($('#opt-key') ? $('#opt-key').checked : true) renderLegend(host);
   const bpb=S.score.beatsPerBar;
   const width=Math.max(340, host.clientWidth-16);
 
@@ -819,6 +847,12 @@ async function saveEdits(){
 }
 
 /* ── wiring ───────────────────────────────────────────────────────────── */
+function on(sel, ev, fn){
+  const el=$(sel);
+  if(el) el.addEventListener(ev, fn);
+  return el;
+}
+
 function init(){
   $('#btn-go').onclick=startJob;
   $('#url').addEventListener('keydown', e=>{ if(e.key==='Enter') startJob(); });
@@ -833,36 +867,36 @@ function init(){
     const f=e.dataTransfer.files[0]; if(f) startUpload(f);
   });
 
-  $('#opt-sens').addEventListener('input', e=>
+  on('#opt-sens','input', e=>
     $('#opt-sens-out').textContent=Number(e.target.value).toFixed(1));
   $('#btn-cancel').onclick=()=>{ clearInterval(S.poll); showView('setup'); };
   $('#btn-new').onclick=()=>{ pause(); clearInterval(S.poll); showView('setup'); };
   $('#btn-play').onclick=togglePlay;
-  $('#audio').addEventListener('error', ()=>{
+  on('#audio','error', ()=>{
     $('#clock').textContent='audio failed to load \u2014 press play to retry';
   });
   $('#speed').addEventListener('input', e=>setSpeed(Number(e.target.value)));
   $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; updateLoopLabel(); };
   $('#btn-print').onclick=()=>window.print();
   $$('.seg').forEach(b=>b.onclick=()=>selectSource(b.dataset.src));
-  $('#opt-edit').addEventListener('change', e=>{
+  on('#opt-edit','change', e=>{
     S.editing=e.target.checked;
     $('#palette').classList.toggle('hidden', !S.editing);
     $('#edit-hint').textContent = S.editing
       ? 'Pick a drum, then click the staff to add it — click it again to remove it.'
       : '';
   });
-  $('#opt-simple').addEventListener('change', e=>{
+  on('#opt-simple','change', e=>{
     S.simple=e.target.checked;
     if(S.score) renderScore();
   });
-  $('#detail').addEventListener('input', e=>{
+  on('#detail','input', e=>{
     S.detail=Number(e.target.value);
     $('#detail-out').textContent=S.detail+'%';
     if(S.score) renderScore();
   });
-  $('#opt-key').addEventListener('change', ()=>{ if(S.score) renderScore(); });
-  $('#opt-met').addEventListener('change', ()=>{ ensureCtx(); S.metIdx=0; resetSched(position()); });
+  on('#opt-key','change', ()=>{ if(S.score) renderScore(); });
+  on('#opt-met','change', ()=>{ ensureCtx(); S.metIdx=0; resetSched(position()); });
 
   document.addEventListener('keydown', e=>{
     if(e.target.matches('input,select,textarea')) return;
