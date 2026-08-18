@@ -667,8 +667,8 @@ function applyCursor(force){
       box=document.createElement('div');
       box.className='cursor';
       Object.assign(box.style,{position:'absolute', pointerEvents:'none',
-        background:'rgba(91,157,255,.16)', border:'1px solid rgba(91,157,255,.5)',
-        borderRadius:'6px', transition:'left .12s linear, width .12s linear'});
+        background:'rgba(255,46,136,.14)', border:'2px solid rgba(255,46,136,.6)',
+        borderRadius:'0', transition:'left .12s linear, width .12s linear'});
       sys.el.appendChild(box);
     }
     Object.assign(box.style,{left:g.x+'px', top:(g.y)+'px',
