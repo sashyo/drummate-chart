@@ -14,6 +14,7 @@ The package is a zip the player drops into their Songs folder:
 """
 from __future__ import annotations
 
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -171,6 +172,22 @@ def _song_ini(doc: dict) -> str:
     ])
 
 
+def _to_ogg(src: Path, dst: Path) -> Path | None:
+    """Clone Hero's one universally-supported stem format is OGG Vorbis -
+    plenty of CH builds silently ignore mp3 stems, which plays as a
+    completely silent song."""
+    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+        return dst
+    try:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+             "-c:a", "libvorbis", "-q:a", "5", str(dst)],
+            check=True, capture_output=True)
+        return dst
+    except Exception:
+        return None
+
+
 def write_package(doc: dict, qscore, job_dir: Path) -> Path:
     """Assemble <job>/clonehero.zip; contents unzip into a CH Songs folder."""
     notes = job_dir / "notes.mid"
@@ -179,14 +196,16 @@ def write_package(doc: dict, qscore, job_dir: Path) -> Path:
     title = doc.get("title", "song")
     safe = "".join(c for c in title if c.isalnum() or c in " -_()[]").strip() or "song"
     zpath = job_dir / "clonehero.zip"
+    backing = _to_ogg(job_dir / "backing.mp3", job_dir / "ch_song.ogg") \
+        if (job_dir / "backing.mp3").exists() else None
+    drums = _to_ogg(job_dir / "drums.mp3", job_dir / "ch_drums.ogg") \
+        if (job_dir / "drums.mp3").exists() else None
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(notes, f"{safe}/notes.mid")
         z.writestr(f"{safe}/song.ini", _song_ini(doc))
-        backing = job_dir / "backing.mp3"
-        drums = job_dir / "drums.mp3"
-        if backing.exists():
-            z.write(backing, f"{safe}/song.mp3")
-        if drums.exists():
-            z.write(drums, f"{safe}/drums.mp3" if backing.exists() else f"{safe}/song.mp3")
+        if backing:
+            z.write(backing, f"{safe}/song.ogg")
+        if drums:
+            z.write(drums, f"{safe}/drums.ogg" if backing else f"{safe}/song.ogg")
     notes.unlink(missing_ok=True)
     return zpath

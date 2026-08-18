@@ -322,9 +322,55 @@ function visibleBars(){
   });
 }
 
+/* ── legend: what each symbol means ─────────────────────────────────── */
+function legendCell(container, label, build){
+  const cell=document.createElement('div'); cell.className='key-cell';
+  const box=document.createElement('div');
+  const lab=document.createElement('div'); lab.className='key-label'; lab.textContent=label;
+  cell.append(box, lab);
+  container.appendChild(cell);
+  try{
+    const r=new VF.Renderer(box, VF.Renderer.Backends.SVG);
+    r.resize(112, 78);
+    const ctx=r.getContext();
+    const stave=new VF.Stave(2, 0, 106, {num_lines:5});
+    stave.setContext(ctx).draw();
+    VF.Formatter.FormatAndDraw(ctx, stave, build());
+  }catch(_){ cell.remove(); }
+}
+
+function mkKeyNote(inst, mods){
+  const d=DRUMS[inst];
+  const n=new VF.StaveNote({keys:[d.key], duration:'q', clef:'percussion',
+    stem_direction: d.voice==='up'?VF.Stem.UP:VF.Stem.DOWN});
+  (mods||[]).forEach(m=>m(n));
+  return [n];
+}
+
+function renderLegend(host){
+  const div=document.createElement('div');
+  div.className='legend';
+  host.appendChild(div);
+  const kit=new Set([...(S.score.kit||[]), 'kick','snare','hihat']);
+  for(const inst of INSTS){
+    if(!kit.has(inst)) continue;
+    legendCell(div, DRUMS[inst].label, ()=>mkKeyNote(inst,
+      inst==='openhh' ? [n=>n.addModifier(new VF.Articulation('ao').setPosition(VF.Modifier.Position.ABOVE),0)] : []));
+  }
+  legendCell(div, 'Accent', ()=>mkKeyNote('snare',
+    [n=>n.addModifier(new VF.Articulation('a>').setPosition(VF.Modifier.Position.ABOVE),0)]));
+  legendCell(div, 'Ghost note', ()=>mkKeyNote('snare',
+    [n=>VF.Parenthesis.buildAndAttach([n])]));
+  legendCell(div, 'Flam', ()=>mkKeyNote('snare', [n=>{
+    const gn=new VF.GraceNote({keys:['c/5'], duration:'8', slash:true, clef:'percussion'});
+    n.addModifier(new VF.GraceNoteGroup([gn], false), 0);
+  }]));
+}
+
 function renderScore(){
   const host=$('#score');
   host.innerHTML=''; S.systems=[];
+  if($('#opt-key')?.checked) renderLegend(host);
   const bpb=S.score.beatsPerBar;
   const width=Math.max(340, host.clientWidth-16);
 
@@ -512,7 +558,11 @@ function play(){
   else if(S.source==='click'){
     ensureCtx(); S.ctx.resume();
     resetSched(S.playFrom); S.playStarted=S.ctx.currentTime;
-  }else{ $('#audio').play().catch(()=>{}); }
+  }else{
+    const a=$('#audio');
+    if(a.error){ const src=a.src, t=S.playFrom||0; a.src=''; a.src=src; a.currentTime=t; }
+    a.play().catch(()=>{});
+  }
   S.playing=true; $('#btn-play').textContent='❚❚';
 }
 function pause(){
@@ -788,6 +838,9 @@ function init(){
   $('#btn-cancel').onclick=()=>{ clearInterval(S.poll); showView('setup'); };
   $('#btn-new').onclick=()=>{ pause(); clearInterval(S.poll); showView('setup'); };
   $('#btn-play').onclick=togglePlay;
+  $('#audio').addEventListener('error', ()=>{
+    $('#clock').textContent='audio failed to load \u2014 press play to retry';
+  });
   $('#speed').addEventListener('input', e=>setSpeed(Number(e.target.value)));
   $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; updateLoopLabel(); };
   $('#btn-print').onclick=()=>window.print();
@@ -808,6 +861,7 @@ function init(){
     $('#detail-out').textContent=S.detail+'%';
     if(S.score) renderScore();
   });
+  $('#opt-key').addEventListener('change', ()=>{ if(S.score) renderScore(); });
   $('#opt-met').addEventListener('change', ()=>{ ensureCtx(); S.metIdx=0; resetSched(position()); });
 
   document.addEventListener('keydown', e=>{

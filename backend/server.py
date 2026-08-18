@@ -233,4 +233,17 @@ def health():
     return {"ok": True, "demucs": demucs_available(), "maxSeconds": MAX_SECONDS}
 
 
+@app.middleware("http")
+async def _revalidate_app_shell(request, call_next):
+    """The app shell must revalidate on every load (ETag makes it a cheap 304),
+    otherwise browsers heuristically cache app.js and users run stale code."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".js", ".css", ".html", ".svg")):
+        resp.headers["Cache-Control"] = "no-cache"
+    elif path.startswith("/api/jobs/") and path.endswith((".mp3", ".ogg")):
+        resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
+
+
 app.mount("/", StaticFiles(directory=str(FRONTEND), html=True), name="static")

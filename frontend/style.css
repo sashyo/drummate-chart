@@ -203,6 +203,15 @@ input[type=range]{accent-color:var(--pink); width:100%}
   background:var(--paper); border:2px solid #000; box-shadow:2px 2px 0 #000}
 .palette button.active{background:var(--yellow); font-weight:700}
 
+/* ── symbol key ─────────────────────────────────────────── */
+.legend{display:flex; flex-wrap:wrap; gap:0 8px; align-items:flex-end;
+  padding:6px 10px 10px; margin:0 6px 12px;
+  border-bottom:2px dashed rgba(0,0,0,.3)}
+.key-cell{text-align:center}
+.key-cell svg{display:block}
+.key-label{font-family:var(--f-mono); font-size:.6rem; letter-spacing:.02em;
+  color:#3a352b; margin-top:-8px; text-transform:uppercase}
+
 /* ── the chart: zine paper ──────────────────────────────── */
 .score{background:var(--paper); border:var(--border); box-shadow:var(--shadow);
   padding:16px 8px 24px; overflow-x:auto; color:var(--ink)}
