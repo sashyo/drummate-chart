@@ -40,6 +40,13 @@ on CPU; a full song a few minutes.
   follows along bar by bar.
 - **Slow it down** with the speed slider, turn on a **click**, and **loop a bar
   range** by clicking a bar (shift-click to set the end).
+- **Play it in Clone Hero**: the Clone Hero button downloads a ready song
+  package — Rock Band-style `notes.mid` with Pro Drums cymbal/tom markers,
+  all four difficulties (Expert is the full transcription; Hard/Medium/Easy
+  are progressive reductions), accents and ghosts, a per-bar tempo map synced
+  to the audio, plus the backing track as `song.mp3` and the isolated kit as
+  `drums.mp3` so misses mute the drums. Unzip it into Clone Hero's `Songs`
+  folder and hit Scan Songs.
 - **Simple mode** reduces the chart to a plain kick / snare / hi-hat groove on an
   8th-note grid, with no ornaments — the version you learn first.
 - **Thin out a busy chart** with the *Detail* slider — it hides the quietest hits

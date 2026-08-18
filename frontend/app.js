@@ -252,6 +252,7 @@ function openScore(score){
   if(score.source){ src.href=score.source; src.classList.remove('hidden'); }
   else src.classList.add('hidden');
 
+  $('#dl-ch').href=`/api/jobs/${S.jobId}/clonehero`;
   $('#dl-midi').href=`/api/jobs/${S.jobId}/files/drums.mid`;
   $('#dl-xml').href=`/api/jobs/${S.jobId}/files/drums.musicxml`;
 

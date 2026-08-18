@@ -203,6 +203,30 @@ def reexport(job_id: str, req: ReexportRequest):
     return {"ok": True, "bars": len(new_doc["bars"])}
 
 
+@app.get("/api/jobs/{job_id}/clonehero")
+def clonehero(job_id: str):
+    """Build (or reuse) a Clone Hero song package for this transcription."""
+    from .pipeline.clonehero import write_package
+    from .pipeline.rebuild import from_json
+
+    out = JOBS_DIR / job_id
+    job = _jobs.get(job_id)
+    doc = job.score if job and job.score else None
+    if doc is None:
+        path = out / "score.json"
+        if not path.exists():
+            raise HTTPException(404, "No such job")
+        doc = json.loads(path.read_text())
+    zpath = out / "clonehero.zip"
+    score_json = out / "score.json"
+    if not zpath.exists() or (score_json.exists()
+                              and score_json.stat().st_mtime > zpath.stat().st_mtime):
+        write_package(doc, from_json(doc, []), out)
+    safe = "".join(c for c in doc.get("title", "song") if c.isalnum() or c in " -_")[:60].strip() or "song"
+    return FileResponse(zpath, media_type="application/zip",
+                        filename=f"{safe} [Clone Hero].zip")
+
+
 @app.get("/api/health")
 def health():
     from .pipeline.separate import demucs_available
