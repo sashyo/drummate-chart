@@ -1,0 +1,18 @@
+# core analysis
+numpy>=1.26
+scipy>=1.11
+librosa>=0.10
+soundfile>=0.12
+# input
+yt-dlp>=2024.1
+# output
+mido>=1.3
+# web
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+
+# Optional but strongly recommended — isolates the drum kit from the mix.
+# Installed separately by run.sh because torch is a large download:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install demucs

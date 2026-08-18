@@ -1,0 +1,13 @@
+services:
+  chart:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - chart-data:/data
+    environment:
+      - DRUMS_MAX_SECONDS=600
+      # - DRUMS_COOKIE_FILE=/data/cookies.txt   # if YouTube bot-checks the server IP
+    restart: unless-stopped
+volumes:
+  chart-data:

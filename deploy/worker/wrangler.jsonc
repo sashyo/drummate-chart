@@ -1,0 +1,22 @@
+{
+  // chart.drummate.app — DrumMate Chart.
+  // Serves the static frontend and proxies /api/* to the heavy backend
+  // (Demucs/ffmpeg can't run in a Worker). Set the backend origin with:
+  //   wrangler secret put BACKEND_ORIGIN --config deploy/worker/wrangler.jsonc
+  // e.g. https://drummate-chart.fly.dev — until it is set, /api/* returns 503.
+  "name": "drummate-chart-site",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-22",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "chart.drummate.app",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "../../frontend",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  }
+}

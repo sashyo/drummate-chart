@@ -1,0 +1,827 @@
+/* Drum Notation — browser app.
+ *
+ * The server sends, per bar, the raw list of hits (tick + instrument). The
+ * browser re-runs the same beat-by-beat layout the server uses for export,
+ * so edits re-engrave instantly without a round trip.
+ */
+'use strict';
+
+const VF = Vex.Flow;
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+/* ── the kit ──────────────────────────────────────────────────────────── */
+const PPQ = 48;
+const DRUMS = {
+  crash:   {label:'Crash',       key:'a/5/x2', midi:49, voice:'up',   order:0, short:'Cr'},
+  hihat:   {label:'Hi-hat',      key:'g/5/x2', midi:42, voice:'up',   order:1, short:'HH'},
+  openhh:  {label:'Open hi-hat', key:'g/5/x2', midi:46, voice:'up',   order:1, short:'oHH'},
+  ride:    {label:'Ride',        key:'f/5/x2', midi:51, voice:'up',   order:2, short:'Rd'},
+  tom_hi:  {label:'High tom',    key:'e/5',    midi:48, voice:'up',   order:3, short:'T1'},
+  tom_mid: {label:'Mid tom',     key:'d/5',    midi:45, voice:'up',   order:4, short:'T2'},
+  snare:   {label:'Snare',       key:'c/5',    midi:38, voice:'up',   order:5, short:'Sn'},
+  tom_low: {label:'Floor tom',   key:'a/4',    midi:41, voice:'up',   order:6, short:'FT'},
+  kick:    {label:'Bass drum',   key:'f/4',    midi:36, voice:'down', order:7, short:'BD'},
+  hhfoot:  {label:'Hi-hat foot', key:'d/4/x2', midi:44, voice:'down', order:8, short:'HHf'},
+};
+const INSTS = Object.keys(DRUMS).sort((a,b)=>DRUMS[a].order-DRUMS[b].order);
+
+/* slots-in-a-beat -> [duration, dots], per subdivision (mirrors score.py) */
+const TABLES = {
+  1:{1:['q',0]},
+  2:{1:['8',0],2:['q',0]},
+  4:{1:['16',0],2:['8',0],3:['8',1],4:['q',0]},
+  8:{1:['32',0],2:['16',0],3:['16',1],4:['8',0],6:['8',1],8:['q',0]},
+  3:{1:['8',0],2:['q',0],3:['q',1]},
+  6:{1:['16',0],2:['8',0],3:['8',1],4:['q',0],6:['q',1]},
+};
+const TUPLET_OCCUPIED = {3:2, 6:4};
+
+/* ── state ────────────────────────────────────────────────────────────── */
+const S = {
+  jobId:null, score:null, poll:null,
+  source:'drums', playing:false, speed:1,
+  loopFrom:null, loopTo:null,
+  editing:false, brush:'snare', detail:90, simple:false,
+  cursorBar:-1, systems:[], yt:null, ytReady:false,
+  ctx:null, scheduled:[], schedTimer:null, playFrom:0, playStarted:0,
+};
+
+/* ── helpers ──────────────────────────────────────────────────────────── */
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+function fmtTime(s){
+  if(!isFinite(s)||s<0) s=0;
+  const m=Math.floor(s/60), r=Math.floor(s%60);
+  return `${m}:${String(r).padStart(2,'0')}`;
+}
+function parseTime(v){
+  if(!v) return null;
+  v=String(v).trim(); if(!v) return null;
+  if(v.includes(':')){
+    const p=v.split(':').map(Number);
+    if(p.some(isNaN)) return null;
+    return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+p[1];
+  }
+  const n=Number(v); return isNaN(n)?null:n;
+}
+
+/* ── layout: hits -> notation elements (same algorithm as the exporter) ── */
+function splitCount(count, table, rest=false){
+  /* rests avoid dotted values — an 8th + 16th rest reads at a glance */
+  const sizes=Object.keys(table).map(Number)
+    .filter(k=>!(rest && table[k][1])).sort((a,b)=>b-a);
+  const out=[]; let rem=count, guard=0;
+  while(rem>0 && guard++<16){
+    const pick=sizes.find(s=>s<=rem);
+    if(pick===undefined) break;
+    out.push([...table[pick], pick]);
+    rem-=pick;
+  }
+  return out;
+}
+
+function layoutVoice(hits, subdiv, beatsPerBar){
+  const table=TABLES[subdiv]||TABLES[4];
+  const slotTicks=PPQ/subdiv;
+  const elems=[];
+  for(let beat=0; beat<beatsPerBar; beat++){
+    const lo=beat*PPQ, hi=(beat+1)*PPQ;
+    const slots=new Map();
+    for(const h of hits){
+      if(h.tick<lo||h.tick>=hi) continue;
+      const s=Math.min(subdiv-1, Math.floor((h.tick-lo)/slotTicks));
+      if(!slots.has(s)) slots.set(s,[]);
+      slots.get(s).push(h);
+    }
+    const be=[];
+    if(slots.size===0){
+      be.push({type:'rest', dur:'q', dots:0, beat, keys:[], insts:[]});
+    }else{
+      const occ=[...slots.keys()].sort((a,b)=>a-b);
+      if(occ[0]>0)
+        for(const [d,dt] of splitCount(occ[0], table, true))
+          be.push({type:'rest', dur:d, dots:dt, beat, keys:[], insts:[]});
+      occ.forEach((s,i)=>{
+        const next = i+1<occ.length ? occ[i+1] : subdiv;
+        const pieces=splitCount(next-s, table);
+        const [d,dt] = pieces.length?pieces[0]:['16',0];
+        const group=slots.get(s).slice().sort((a,b)=>DRUMS[a.inst].order-DRUMS[b.inst].order);
+        be.push({
+          type:'note', dur:d, dots:dt, beat,
+          keys:group.map(h=>DRUMS[h.inst].key),
+          insts:group.map(h=>h.inst),
+          accent:group.some(h=>h.accent),
+          ghost:group.every(h=>h.ghost)&&group.some(h=>h.inst==='snare'),
+          flam:group.some(h=>h.flam),
+          open:group.some(h=>h.inst==='openhh'),
+          time:Math.min(...group.map(h=>h.time??0)),
+          tick:lo+s*slotTicks,
+        });
+        for(const [d2,dt2] of pieces.slice(1))
+          be.push({type:'rest', dur:d2, dots:dt2, beat, keys:[], insts:[]});
+      });
+    }
+    if(TUPLET_OCCUPIED[subdiv]){
+      if(be.length>1) be.forEach(e=>e.tuplet={num:subdiv, den:TUPLET_OCCUPIED[subdiv]});
+      else { be[0].dur='q'; be[0].dots=0; }   // a whole triplet beat = one quarter
+    }
+    elems.push(...be);
+  }
+  return elems;
+}
+
+function layoutBar(bar, beatsPerBar){
+  const up=bar.hits.filter(h=>DRUMS[h.inst]?.voice==='up');
+  const down=bar.hits.filter(h=>DRUMS[h.inst]?.voice==='down');
+  const laid={
+    up: layoutVoice(up, bar.subdivision, beatsPerBar),
+    down: layoutVoice(down, bar.subdivision, beatsPerBar),
+  };
+  /* Published charts don't stack rests under the hands: the kick voice only
+   * shows a rest when it locates a mid-beat note (e.g. the 8th rest before a
+   * kick on the "&"). Whole-beat rests in the feet stay for the voice math
+   * but are not drawn. */
+  for(const e of laid.down)
+    if(e.type==='rest' && e.dur==='q' && !e.dots) e.hidden=true;
+  return laid;
+}
+
+/* ── API ──────────────────────────────────────────────────────────────── */
+async function api(path, opts){
+  const r=await fetch(path, opts);
+  if(!r.ok){
+    let msg=`${r.status} ${r.statusText}`;
+    try{ const j=await r.json(); if(j.detail) msg=j.detail; }catch(_){}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
+function collectOptions(){
+  return {
+    start: parseTime($('#opt-start').value),
+    end: parseTime($('#opt-end').value),
+    beatsPerBar: Number($('#opt-meter').value),
+    tempo: $('#opt-tempo').value ? Number($('#opt-tempo').value) : null,
+    sensitivity: Number($('#opt-sens').value),
+    maxSubdiv: Number($('#opt-subdiv').value),
+    allowTriplets: $('#opt-triplets').checked,
+    detectToms: $('#opt-toms').checked,
+    cymbalDetail: $('#opt-cym').checked,
+    detectSwing: $('#opt-swing').checked,
+    separation: $('#opt-sep').value,
+    renderAudio: true,
+  };
+}
+
+function showView(name){
+  for(const v of ['setup','progress','score'])
+    $('#view-'+v).classList.toggle('hidden', v!==name);
+  $('#btn-new').classList.toggle('hidden', name==='setup');
+}
+
+async function startJob(){
+  const url=$('#url').value.trim();
+  if(!url){ showError('Paste a YouTube link, or drop an audio file.'); return; }
+  showError('');
+  try{
+    const {jobId}=await api('/api/transcribe',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url, ...collectOptions()}),
+    });
+    watch(jobId);
+  }catch(e){ showError(e.message); }
+}
+
+async function startUpload(file){
+  showError('');
+  const fd=new FormData();
+  fd.append('file', file);
+  fd.append('options', JSON.stringify(collectOptions()));
+  try{
+    const {jobId}=await api('/api/upload',{method:'POST', body:fd});
+    watch(jobId);
+  }catch(e){ showError(e.message); }
+}
+
+function showError(msg){
+  const el=$('#setup-error');
+  el.textContent=msg; el.classList.toggle('hidden', !msg);
+}
+
+function watch(jobId){
+  S.jobId=jobId;
+  showView('progress');
+  $('#prog-fill').style.width='2%';
+  $('#prog-msg').textContent='Queued…';
+  clearInterval(S.poll);
+  S.poll=setInterval(async()=>{
+    let j;
+    try{ j=await api(`/api/jobs/${jobId}`); }
+    catch(e){ return; }
+    $('#prog-fill').style.width=(j.progress*100).toFixed(1)+'%';
+    $('#prog-msg').textContent=j.message||'';
+    $$('#prog-steps li').forEach(li=>{
+      const at=Number(li.dataset.at);
+      li.classList.toggle('done', j.progress>=at);
+      li.classList.toggle('active', j.progress<at && j.progress>at-0.35);
+    });
+    if(j.status==='done'){
+      clearInterval(S.poll);
+      const score=await api(`/api/jobs/${jobId}/score`);
+      openScore(score);
+    }else if(j.status==='error'){
+      clearInterval(S.poll);
+      showView('setup');
+      showError(j.error||'Transcription failed.');
+    }
+  }, 700);
+}
+
+/* ── rendering ────────────────────────────────────────────────────────── */
+
+function openScore(score){
+  S.score=score;
+  S.cursorBar=-1; S.loopFrom=S.loopTo=null; updateLoopLabel();
+  $('#s-title').textContent=score.title;
+  $('#s-tempo').textContent=`♩ = ${Math.round(score.tempo)}`;
+  $('#s-meter').textContent=score.timeSignature;
+  $('#s-swing').textContent = score.swing ? 'Swing 8ths' : 'Straight';
+  $('#s-kit').textContent = (score.kit||[]).map(i=>DRUMS[i]?.label||i).join(' \u00b7 ');
+  const src=$('#s-source');
+  if(score.source){ src.href=score.source; src.classList.remove('hidden'); }
+  else src.classList.add('hidden');
+
+  $('#dl-midi').href=`/api/jobs/${S.jobId}/files/drums.mid`;
+  $('#dl-xml').href=`/api/jobs/${S.jobId}/files/drums.musicxml`;
+
+  const have=score.audio||{};
+  setSegEnabled('drums', !!have.drums);
+  setSegEnabled('backing', !!have.backing);
+  setSegEnabled('youtube', !!score.videoId);
+  selectSource(have.drums ? 'drums' : (score.videoId ? 'youtube' : 'click'));
+
+  buildPalette();
+  showView('score');
+  renderScore();
+  requestAnimationFrame(tick);
+}
+
+/* Bars are priced by how many symbols they must hold, then packed into
+ * systems that fit the page. A dense fill therefore gets the room it needs
+ * instead of being crushed into a quarter of the width. */
+const CLEF_W = 62, SYS_TOP = 54, SYS_H = 196;
+
+function detailThresholds(){
+  if(S._thrFor===S.score && S._thrDetail===S.detail) return S._thr;
+  const by={};
+  for(const b of S.score.bars)
+    for(const h of b.hits) (by[h.inst]=by[h.inst]||[]).push(h.velocity||0);
+  const thr={}, q=(100-S.detail)/100;
+  for(const k in by){
+    const a=by[k].sort((x,y)=>x-y);
+    thr[k]= q<=0 ? -1 : a[Math.min(a.length-1, Math.floor(q*a.length))];
+  }
+  S._thr=thr; S._thrFor=S.score; S._thrDetail=S.detail;
+  return thr;
+}
+
+/* The bars actually drawn: at full detail the originals, otherwise shallow
+ * copies with hits hidden or simplified. `_orig` keeps edits pointing home. */
+const SIMPLE_MAP={openhh:'hihat', ride:'hihat', tom_hi:'tom_mid', tom_low:'tom_mid'};
+
+function visibleBars(){
+  const bars=S.score.bars;
+  if(S.detail>=100 && !S.simple){ bars.forEach(b=>b._orig=b); return bars; }
+  const thr = S.detail<100 ? detailThresholds() : null;
+  return bars.map(b=>{
+    let hits=thr ? b.hits.filter(h=>(h.velocity||0)>=(thr[h.inst]??-1)) : b.hits.slice();
+    const c={...b, _orig:b};
+    if(S.simple){
+      /* Kick / snare / hats on an 8th-note grid, no ornaments: the groove a
+       * beginner learns first. A crash survives only on a bar's downbeat. */
+      const slot=PPQ/2, merged=new Map();
+      for(const h of hits){
+        if(h.ghost) continue;
+        let inst = h.inst==='crash' ? (h.tick<slot ? 'crash' : 'hihat')
+                                    : (SIMPLE_MAP[h.inst]||h.inst);
+        const tick=Math.min(S.score.ticksPerBar-slot, Math.round(h.tick/slot)*slot);
+        const key=inst+':'+tick, prev=merged.get(key);
+        if(!prev || (h.velocity||0)>(prev.velocity||0))
+          merged.set(key, {...h, inst, tick, accent:false, ghost:false, flam:false});
+      }
+      hits=[...merged.values()].sort((a,b2)=>a.tick-b2.tick||DRUMS[a.inst].order-DRUMS[b2.inst].order);
+      c.subdivision=2; c.grid='8th';
+    }
+    c.hits=hits; c.empty=hits.length===0;
+    return c;
+  });
+}
+
+function renderScore(){
+  const host=$('#score');
+  host.innerHTML=''; S.systems=[];
+  const bpb=S.score.beatsPerBar;
+  const width=Math.max(340, host.clientWidth-16);
+
+  const priced=visibleBars().map(bar=>{
+    const laid=layoutBar(bar, bpb);
+    const n=Math.max(laid.up.length, laid.down.length);
+    return {bar, laid, need:Math.max(148, 56+24*n)};   // dense bars get real air
+  });
+
+  const rows=[]; let cur=[], curW=0;
+  for(const p of priced){
+    const lead=(rows.length===0 && cur.length===0) ? CLEF_W : 0;
+    if(cur.length && curW+p.need+lead > width-14){ rows.push(cur); cur=[]; curW=0; }
+    cur.push(p); curW+=p.need;
+  }
+  if(cur.length) rows.push(cur);
+
+  rows.forEach((row,i)=>{
+    const div=document.createElement('div');
+    div.className='system';
+    host.appendChild(div);
+    drawSystem(div, row, width, i===0);
+  });
+  applyCursor(false);
+  $('#bar-count').textContent=`${priced.length} bars`;
+}
+
+function drawSystem(div, row, width, isFirst){
+  const renderer=new VF.Renderer(div, VF.Renderer.Backends.SVG);
+  renderer.resize(width, SYS_H);
+  const ctx=renderer.getContext();
+  ctx.setFont('sans-serif', 10);
+
+  const lead = isFirst ? CLEF_W : 0;
+  const total = row.reduce((a,p)=>a+p.need, 0);
+  const usable = width - 14 - lead;
+  const scale = usable / total;             // fill the line, keep proportions
+  const geo=[];
+  let x=8;
+
+  row.forEach((p,bi)=>{
+    const w = p.need*scale + (bi===0 ? lead : 0);
+    const stave=new VF.Stave(x, SYS_TOP, w, {num_lines:5});
+    if(isFirst && bi===0){
+      stave.addClef('percussion');
+      stave.addTimeSignature(S.score.timeSignature);
+    }
+    stave.setMeasure(p.bar.number);
+    stave.setContext(ctx).draw();
+
+    const voices=[];
+    for(const [elems,dir] of [[p.laid.up,'up'],[p.laid.down,'down']]){
+      if(dir==='down' && !elems.some(e=>e.type==='note')) continue;
+      const notes=buildNotes(elems, dir);
+      if(!notes.length) continue;
+      const v=new VF.Voice({num_beats:S.score.beatsPerBar, beat_value:4});
+      v.setStrict(false);
+      v.addTickables(notes.map(n=>n.vf));
+      voices.push({voice:v, notes, dir});
+    }
+    if(voices.length){
+      const fmt=new VF.Formatter();
+      fmt.joinVoices(voices.map(v=>v.voice));
+      fmt.formatToStave(voices.map(v=>v.voice), stave);
+    }
+    const tuplets=[], beams=[];
+    for(const {notes,dir} of voices){
+      collectTuplets(notes).forEach(t=>tuplets.push(t));
+      VF.Beam.generateBeams(notes.filter(n=>n.el.type==='note').map(n=>n.vf), {
+        groups:[new VF.Fraction(1,4)],
+        stem_direction: dir==='up'?VF.Stem.UP:VF.Stem.DOWN,
+      }).forEach(b=>beams.push(b));
+    }
+    for(const {voice} of voices) voice.draw(ctx, stave);
+    beams.forEach(b=>b.setContext(ctx).draw());
+    tuplets.forEach(t=>t.setContext(ctx).draw());
+
+    geo.push({index:p.bar.index, bar:p.bar, x, y:SYS_TOP-30, w, h:104,
+              noteX0:stave.getNoteStartX(), noteX1:x+w-6});
+    x+=w;
+  });
+
+  const svg=div.querySelector('svg');
+  svg.style.cursor='pointer';
+  div.addEventListener('click', (ev)=>onSystemClick(ev, div, geo));
+  S.systems.push({el:div, svg, bars:geo});
+}
+
+function buildNotes(elems, dir){
+  const out=[];
+  for(const e of elems){
+    let vf;
+    if(e.type==='rest'){
+      const key = dir==='up' ? 'b/4' : 'd/4';
+      vf=new VF.StaveNote({keys:[key], duration:e.dur+'r', clef:'percussion'});
+      if(e.hidden) vf.setStyle({fillStyle:'none', strokeStyle:'none'});
+    }else{
+      vf=new VF.StaveNote({
+        keys:e.keys, duration:e.dur, clef:'percussion',
+        stem_direction: dir==='up'?VF.Stem.UP:VF.Stem.DOWN,
+      });
+      if(e.accent) vf.addModifier(new VF.Articulation('a>').setPosition(
+        dir==='up'?VF.Modifier.Position.ABOVE:VF.Modifier.Position.BELOW), 0);
+      if(e.open) vf.addModifier(new VF.Articulation('ao').setPosition(
+        VF.Modifier.Position.ABOVE), 0);
+      if(e.ghost){
+        try{ VF.Parenthesis.buildAndAttach([vf]); }catch(_){}
+      }
+      if(e.flam){
+        try{
+          const gn=new VF.GraceNote({keys:[e.keys[0]], duration:'8', slash:true,
+                                     clef:'percussion'});
+          vf.addModifier(new VF.GraceNoteGroup([gn], false).beamNotes(), 0);
+        }catch(_){}
+      }
+    }
+    if(e.dots) { try{ VF.Dot.buildAndAttach([vf], {all:true}); }catch(_){} }
+    out.push({vf, el:e});
+  }
+  return out;
+}
+
+function collectTuplets(notes){
+  const out=[]; let i=0;
+  while(i<notes.length){
+    const t=notes[i].el.tuplet;
+    if(!t){ i++; continue; }
+    let j=i;
+    while(j+1<notes.length && notes[j+1].el.tuplet &&
+          notes[j+1].el.tuplet.num===t.num &&
+          notes[j+1].el.beat===notes[i].el.beat) j++;
+    if(j>i){
+      try{
+        out.push(new VF.Tuplet(notes.slice(i,j+1).map(n=>n.vf),
+          {num_notes:t.num, notes_occupied:t.den, bracketed:true, ratioed:false}));
+      }catch(_){}
+    }
+    i=j+1;
+  }
+  return out;
+}
+
+/* ── playback ─────────────────────────────────────────────────────────── */
+function duration(){
+  const b=S.score?.bars; return b&&b.length ? b[b.length-1].endTime : 0;
+}
+function setSegEnabled(src, on){
+  const b=$(`.seg[data-src="${src}"]`); if(b) b.disabled=!on;
+}
+function selectSource(src){
+  if($(`.seg[data-src="${src}"]`)?.disabled) src='click';
+  const at=position();
+  pause();
+  S.source=src;
+  $$('.seg').forEach(b=>b.classList.toggle('active', b.dataset.src===src));
+  const wrap=$('#yt-wrap'), audio=$('#audio');
+  wrap.classList.toggle('hidden', src!=='youtube');
+  if(src==='youtube'){ ensureYT(); }
+  else if(src==='drums'||src==='backing'){
+    const want=`/api/jobs/${S.jobId}/files/${src}.mp3`;
+    if(!audio.src.endsWith(`${src}.mp3`)) audio.src=want;
+    audio.playbackRate=S.speed;
+  }
+  seek(at||0);
+}
+
+function position(){
+  if(!S.score) return 0;
+  if(S.source==='youtube')
+    return S.yt&&S.ytReady ? Math.max(0,S.yt.getCurrentTime()-S.score.offset) : 0;
+  if(S.source==='click')
+    return S.playing ? S.playFrom+(S.ctx.currentTime-S.playStarted)*S.speed : S.playFrom;
+  return $('#audio').currentTime;
+}
+function seek(t){
+  t=clamp(t,0,Math.max(0,duration()));
+  if(S.source==='youtube'){ if(S.yt&&S.ytReady) S.yt.seekTo(t+S.score.offset,true); }
+  else if(S.source==='click'){
+    S.playFrom=t;
+    if(S.playing){ resetSched(t); S.playStarted=S.ctx.currentTime; }
+  }else{ $('#audio').currentTime=t; }
+}
+function play(){
+  if(S.source==='youtube'){ if(S.yt&&S.ytReady) S.yt.playVideo(); }
+  else if(S.source==='click'){
+    ensureCtx(); S.ctx.resume();
+    resetSched(S.playFrom); S.playStarted=S.ctx.currentTime;
+  }else{ $('#audio').play().catch(()=>{}); }
+  S.playing=true; $('#btn-play').textContent='❚❚';
+}
+function pause(){
+  if(S.source==='youtube'){ if(S.yt&&S.ytReady) S.yt.pauseVideo(); }
+  else if(S.source==='click'){ S.playFrom=position(); }
+  else $('#audio').pause();
+  S.playing=false; $('#btn-play').textContent='▶';
+}
+function togglePlay(){ S.playing?pause():play(); }
+
+function setSpeed(v){
+  S.speed=v;
+  $('#speed-out').textContent=v.toFixed(2)+'×';
+  $('#audio').playbackRate=v;
+  if(S.yt&&S.ytReady){ try{ S.yt.setPlaybackRate(v); }catch(_){} }
+}
+
+/* YouTube iframe player, loaded lazily */
+function ensureYT(){
+  if(S.yt||!S.score?.videoId) return;
+  if(!window.YT){
+    const tag=document.createElement('script');
+    tag.src='https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady=()=>makeYT();
+  }else makeYT();
+}
+function makeYT(){
+  if(S.yt) return;
+  S.yt=new YT.Player('yt-player',{
+    videoId:S.score.videoId, playerVars:{controls:1, rel:0, modestbranding:1},
+    events:{
+      onReady:()=>{ S.ytReady=true; try{S.yt.setPlaybackRate(S.speed);}catch(_){} },
+      onStateChange:(e)=>{
+        if(e.data===YT.PlayerState.PLAYING){ S.playing=true; $('#btn-play').textContent='❚❚'; }
+        if(e.data===YT.PlayerState.PAUSED||e.data===YT.PlayerState.ENDED){
+          S.playing=false; $('#btn-play').textContent='▶';
+        }
+      },
+    },
+  });
+}
+
+/* ── the synth (notation playback + metronome) ────────────────────────── */
+function ensureCtx(){
+  if(!S.ctx) S.ctx=new (window.AudioContext||window.webkitAudioContext)();
+  if(!S.noise){
+    const n=S.ctx.sampleRate*2, buf=S.ctx.createBuffer(1,n,S.ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+    S.noise=buf;
+  }
+  return S.ctx;
+}
+function noiseSrc(){ const s=S.ctx.createBufferSource(); s.buffer=S.noise; s.loop=true; return s; }
+function envGain(t, peak, decay){
+  const g=S.ctx.createGain();
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(peak,t+0.002);
+  g.gain.exponentialRampToValueAtTime(0.0005,t+decay);
+  return g;
+}
+function hit(inst, t, vel=0.8){
+  const c=ensureCtx(), out=c.destination, v=clamp(vel,0.1,1);
+  const tone=(f0,f1,dec,gain,type='sine')=>{
+    const o=c.createOscillator(); o.type=type;
+    o.frequency.setValueAtTime(f0,t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),t+dec*0.8);
+    const g=envGain(t,gain*v,dec); o.connect(g).connect(out);
+    o.start(t); o.stop(t+dec+0.02);
+  };
+  const noise=(hp,dec,gain,q=0.7)=>{
+    const s=noiseSrc(), f=c.createBiquadFilter();
+    f.type='highpass'; f.frequency.value=hp; f.Q.value=q;
+    const g=envGain(t,gain*v,dec);
+    s.connect(f).connect(g).connect(out);
+    s.start(t); s.stop(t+dec+0.02);
+  };
+  switch(inst){
+    case 'kick':    tone(125,42,0.22,0.9); noise(90,0.02,0.10); break;
+    case 'snare':   noise(1500,0.16,0.42,0.6); tone(196,150,0.10,0.22,'triangle'); break;
+    case 'hihat':   noise(7500,0.035,0.20); break;
+    case 'openhh':  noise(7000,0.32,0.18); break;
+    case 'ride':    noise(6200,0.55,0.10); tone(560,540,0.28,0.06,'triangle'); break;
+    case 'crash':   noise(3200,1.30,0.20); break;
+    case 'tom_hi':  tone(280,190,0.30,0.55); break;
+    case 'tom_mid': tone(200,140,0.34,0.55); break;
+    case 'tom_low': tone(140,95,0.42,0.60); break;
+    case 'hhfoot':  noise(6000,0.05,0.14); break;
+    case 'click':   tone(1400,1400,0.03,0.25,'square'); break;
+    case 'click1':  tone(2100,2100,0.04,0.34,'square'); break;
+  }
+}
+function flatHits(){
+  if(S._flat && S._flatFor===S.score) return S._flat;
+  const list=[];
+  for(const b of S.score.bars)
+    for(const h of b.hits)
+      list.push({t:h.time, inst:h.inst, v:h.ghost?0.3:(h.accent?1:0.75)});
+  list.sort((a,b)=>a.t-b.t);
+  S._flat=list; S._flatFor=S.score;
+  return list;
+}
+function beatTimes(){
+  if(S._beats && S._beatsFor===S.score) return S._beats;
+  const out=[]; const n=S.score.beatsPerBar;
+  for(const b of S.score.bars){
+    const span=(b.endTime-b.startTime)/n;
+    for(let k=0;k<n;k++) out.push({t:b.startTime+k*span, down:k===0});
+  }
+  S._beats=out; S._beatsFor=S.score;
+  return out;
+}
+function resetSched(from){
+  S.scheduled=[]; S.synthIdx=0; S.metIdx=0;
+  const hits=flatHits(); while(S.synthIdx<hits.length && hits[S.synthIdx].t<from) S.synthIdx++;
+  const bts=beatTimes(); while(S.metIdx<bts.length && bts[S.metIdx].t<from) S.metIdx++;
+  S.playFrom=from;
+}
+function pump(pos){
+  if(!S.playing) return;
+  const c=S.ctx; if(!c) return;
+  const AHEAD=0.35;
+  const toCtx=(t)=>c.currentTime+(t-pos)/S.speed;
+  if(S.source==='click'){
+    const hits=flatHits();
+    while(S.synthIdx<hits.length && hits[S.synthIdx].t < pos+AHEAD*S.speed){
+      const h=hits[S.synthIdx++];
+      if(h.t>=pos-0.05) hit(h.inst, Math.max(c.currentTime, toCtx(h.t)), h.v);
+    }
+  }
+  if($('#opt-met').checked){
+    const bts=beatTimes();
+    while(S.metIdx<bts.length && bts[S.metIdx].t < pos+AHEAD*S.speed){
+      const b=bts[S.metIdx++];
+      if(b.t>=pos-0.05) hit(b.down?'click1':'click', Math.max(c.currentTime, toCtx(b.t)), 1);
+    }
+  }
+}
+
+/* ── cursor / loop ────────────────────────────────────────────────────── */
+function barAt(t){
+  const bars=S.score.bars;
+  for(let i=0;i<bars.length;i++)
+    if(t>=bars[i].startTime && t<bars[i].endTime) return i;
+  return t<bars[0]?.startTime ? -1 : bars.length-1;
+}
+function applyCursor(force){
+  const idx=S.cursorBar;
+  const num=S.score.bars[idx]?.number;
+  for(const sys of S.systems){
+    let box=sys.el.querySelector('.cursor');
+    const g=sys.bars.find(b=>b.bar.number===num);
+    if(!g){ if(box) box.remove(); continue; }
+    if(!box){
+      box=document.createElement('div');
+      box.className='cursor';
+      Object.assign(box.style,{position:'absolute', pointerEvents:'none',
+        background:'rgba(91,157,255,.16)', border:'1px solid rgba(91,157,255,.5)',
+        borderRadius:'6px', transition:'left .12s linear, width .12s linear'});
+      sys.el.appendChild(box);
+    }
+    Object.assign(box.style,{left:g.x+'px', top:(g.y)+'px',
+      width:g.w+'px', height:(g.h+14)+'px'});
+    if(force && $('#opt-follow').checked && sys.el.scrollIntoView){
+      const r=sys.el.getBoundingClientRect();
+      if(r.top<70||r.bottom>window.innerHeight-40)
+        sys.el.scrollIntoView({block:'center', behavior:'smooth'});
+    }
+  }
+}
+function updateLoopLabel(){
+  const l=$('#loop-label');
+  if(S.loopFrom==null){ l.textContent='Loop: off'; return; }
+  const a=S.score.bars[S.loopFrom]?.number, b=S.score.bars[S.loopTo??S.loopFrom]?.number;
+  l.textContent=`Loop: bars ${a}–${b}`;
+}
+function tick(){
+  requestAnimationFrame(tick);
+  if(!S.score) return;
+  const pos=position();
+  $('#clock').textContent=`${fmtTime(pos)} / ${fmtTime(duration())}`;
+  pump(pos);
+  if(S.loopFrom!=null && S.playing){
+    const end=S.score.bars[S.loopTo??S.loopFrom]?.endTime ?? Infinity;
+    const start=S.score.bars[S.loopFrom]?.startTime ?? 0;
+    if(pos>=end-0.01 || pos<start-0.25) seek(start);
+  }
+  const idx=barAt(pos);
+  if(idx!==S.cursorBar){ S.cursorBar=idx; applyCursor(true); }
+}
+
+/* ── editing ──────────────────────────────────────────────────────────── */
+function buildPalette(){
+  const p=$('#palette'); p.innerHTML='';
+  for(const inst of INSTS){
+    const b=document.createElement('button');
+    b.textContent=DRUMS[inst].label;
+    b.dataset.inst=inst;
+    b.className = inst===S.brush ? 'active':'';
+    b.onclick=()=>{ S.brush=inst; buildPalette(); };
+    p.appendChild(b);
+  }
+}
+function onSystemClick(ev, div, geo){
+  const rect=div.querySelector('svg').getBoundingClientRect();
+  const x=ev.clientX-rect.left;
+  const g=geo.find(b=>x>=b.x && x<b.x+b.w) || geo[geo.length-1];
+  if(!g) return;
+  const barIdx=S.score.bars.indexOf(g.bar);
+
+  if(!S.editing){
+    if(ev.shiftKey && S.loopFrom!=null) S.loopTo=Math.max(S.loopFrom, barIdx);
+    else { S.loopFrom=barIdx; S.loopTo=barIdx; }
+    updateLoopLabel();
+    if(!ev.shiftKey) seek(g.bar.startTime);
+    return;
+  }
+
+  const ticksPerBar=S.score.ticksPerBar;
+  const slot=PPQ/(g.bar.subdivision||4);
+  const frac=clamp((x-g.noteX0)/Math.max(1,(g.noteX1-g.noteX0)),0,0.999);
+  const tick=clamp(Math.round(frac*ticksPerBar/slot)*slot, 0, ticksPerBar-slot);
+
+  const target=g.bar._orig || g.bar;      // edits belong to the real bar
+  const hits=target.hits;
+  const at=hits.findIndex(h=>h.inst===S.brush && Math.abs(h.tick-tick)<slot/2);
+  if(at>=0) hits.splice(at,1);
+  else{
+    const span=g.bar.endTime-g.bar.startTime;
+    hits.push({tick, inst:S.brush, velocity:0.8, ghost:false, accent:false,
+               flam:false, time:+(g.bar.startTime+span*tick/ticksPerBar).toFixed(4)});
+    hits.sort((a,b)=>a.tick-b.tick||DRUMS[a.inst].order-DRUMS[b.inst].order);
+  }
+  target.empty=hits.length===0;
+  S._flat=null; S._flatFor=null; S._thrFor=null;
+  markDirty();
+  renderScore();
+}
+let dirtyTimer=null;
+function markDirty(){
+  $('#edit-hint').textContent='Edited — saving exports…';
+  clearTimeout(dirtyTimer);
+  dirtyTimer=setTimeout(saveEdits, 900);
+}
+async function saveEdits(){
+  try{
+    await api(`/api/jobs/${S.jobId}/reexport`,{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({bars:S.score.bars.map(b=>({index:b.index, hits:b.hits}))}),
+    });
+    $('#edit-hint').textContent='Edits saved — MIDI and MusicXML updated.';
+  }catch(e){ $('#edit-hint').textContent='Could not save exports: '+e.message; }
+}
+
+/* ── wiring ───────────────────────────────────────────────────────────── */
+function init(){
+  $('#btn-go').onclick=startJob;
+  $('#url').addEventListener('keydown', e=>{ if(e.key==='Enter') startJob(); });
+  $('#file').addEventListener('change', e=>{ if(e.target.files[0]) startUpload(e.target.files[0]); });
+  const drop=$('#filedrop');
+  drop.addEventListener('click', ()=>$('#file').click());
+  ['dragenter','dragover'].forEach(t=>drop.addEventListener(t, e=>{
+    e.preventDefault(); drop.classList.add('drag'); }));
+  ['dragleave','drop'].forEach(t=>drop.addEventListener(t, e=>{
+    e.preventDefault(); drop.classList.remove('drag'); }));
+  drop.addEventListener('drop', e=>{
+    const f=e.dataTransfer.files[0]; if(f) startUpload(f);
+  });
+
+  $('#opt-sens').addEventListener('input', e=>
+    $('#opt-sens-out').textContent=Number(e.target.value).toFixed(1));
+  $('#btn-cancel').onclick=()=>{ clearInterval(S.poll); showView('setup'); };
+  $('#btn-new').onclick=()=>{ pause(); clearInterval(S.poll); showView('setup'); };
+  $('#btn-play').onclick=togglePlay;
+  $('#speed').addEventListener('input', e=>setSpeed(Number(e.target.value)));
+  $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; updateLoopLabel(); };
+  $('#btn-print').onclick=()=>window.print();
+  $$('.seg').forEach(b=>b.onclick=()=>selectSource(b.dataset.src));
+  $('#opt-edit').addEventListener('change', e=>{
+    S.editing=e.target.checked;
+    $('#palette').classList.toggle('hidden', !S.editing);
+    $('#edit-hint').textContent = S.editing
+      ? 'Pick a drum, then click the staff to add it — click it again to remove it.'
+      : '';
+  });
+  $('#opt-simple').addEventListener('change', e=>{
+    S.simple=e.target.checked;
+    if(S.score) renderScore();
+  });
+  $('#detail').addEventListener('input', e=>{
+    S.detail=Number(e.target.value);
+    $('#detail-out').textContent=S.detail+'%';
+    if(S.score) renderScore();
+  });
+  $('#opt-met').addEventListener('change', ()=>{ ensureCtx(); S.metIdx=0; resetSched(position()); });
+
+  document.addEventListener('keydown', e=>{
+    if(e.target.matches('input,select,textarea')) return;
+    if(e.code==='Space'){ e.preventDefault(); togglePlay(); }
+    if(e.key==='ArrowLeft') seek(position()-2);
+    if(e.key==='ArrowRight') seek(position()+2);
+  });
+
+  let rt=null;
+  window.addEventListener('resize', ()=>{
+    clearTimeout(rt); rt=setTimeout(()=>{ if(S.score) renderScore(); }, 200);
+  });
+
+  api('/api/health').then(h=>{
+    const p=$('#engine');
+    p.textContent = h.demucs ? 'Demucs separation ready' : 'Fast separation (no Demucs)';
+    p.classList.toggle('pill-muted', !h.demucs);
+  }).catch(()=>{ $('#engine').textContent='server offline'; });
+}
+document.addEventListener('DOMContentLoaded', init);

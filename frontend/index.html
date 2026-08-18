@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DrumMate Chart</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><img src="logo.svg" alt="" class="logo"><span>DrumMate <em>Chart</em></span></div>
+  <div class="topbar-right">
+    <span id="engine" class="pill pill-muted" title="Separation engine">checking…</span>
+    <button id="btn-new" class="ghost hidden">New transcription</button>
+  </div>
+</header>
+
+<!-- ─── setup ─────────────────────────────────────────────────────────── -->
+<section id="view-setup" class="view">
+  <div class="hero">
+    <h1>Turn any song into a drum chart</h1>
+    <p class="sub">Paste a YouTube link. The kit is separated from the mix, every hit is
+       detected and classified, and you get real notation to practise with — plus an
+       isolated drum track and a drums-removed backing track to play along to.</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <input id="url" type="url" spellcheck="false"
+             placeholder="https://www.youtube.com/watch?v=…" autocomplete="off">
+      <button id="btn-go" class="primary">Transcribe</button>
+    </div>
+
+    <div class="or"><span>or</span></div>
+    <label class="filedrop" id="filedrop">
+      <input id="file" type="file" accept="audio/*,video/*" hidden>
+      <span>Drop an audio file here, or <u>browse</u></span>
+    </label>
+
+    <details class="opts">
+      <summary>Analysis options</summary>
+      <div class="grid">
+        <label>Start <input id="opt-start" type="text" placeholder="0:00" inputmode="numeric"></label>
+        <label>End <input id="opt-end" type="text" placeholder="e.g. 1:30"></label>
+        <label>Time signature
+          <select id="opt-meter">
+            <option value="4">4/4</option><option value="3">3/4</option>
+            <option value="2">2/4</option><option value="5">5/4</option>
+            <option value="6">6/4</option><option value="7">7/4</option>
+          </select>
+        </label>
+        <label>Tempo <input id="opt-tempo" type="number" min="30" max="300" placeholder="auto"></label>
+        <label>Finest note
+          <select id="opt-subdiv">
+            <option value="2">8th notes</option>
+            <option value="4" selected>16th notes</option>
+            <option value="8">32nd notes</option>
+          </select>
+        </label>
+        <label>Sensitivity
+          <input id="opt-sens" type="range" min="0.4" max="2" step="0.1" value="1">
+          <output id="opt-sens-out">1.0</output>
+        </label>
+        <label>Drum separation
+          <select id="opt-sep">
+            <option value="htdemucs" selected>Demucs (best)</option>
+            <option value="hpss">Fast (percussive filter)</option>
+            <option value="none">None (already drums only)</option>
+          </select>
+        </label>
+        <label class="check"><input id="opt-toms" type="checkbox" checked> Detect toms</label>
+        <label class="check"><input id="opt-cym" type="checkbox" checked> Tell cymbals apart</label>
+        <label class="check"><input id="opt-triplets" type="checkbox" checked> Allow triplets</label>
+        <label class="check"><input id="opt-swing" type="checkbox" checked> Detect swing</label>
+      </div>
+    </details>
+    <p id="setup-error" class="error hidden"></p>
+  </div>
+</section>
+
+<!-- ─── progress ──────────────────────────────────────────────────────── -->
+<section id="view-progress" class="view hidden">
+  <div class="card progress-card">
+    <h2 id="prog-title">Working on it</h2>
+    <div class="bar"><div id="prog-fill"></div></div>
+    <p id="prog-msg" class="muted">Starting…</p>
+    <ol id="prog-steps" class="steps">
+      <li data-at="0.10">Fetch the audio</li>
+      <li data-at="0.45">Separate the drums from the mix</li>
+      <li data-at="0.56">Find the tempo and the beat</li>
+      <li data-at="0.79">Detect and identify every hit</li>
+      <li data-at="0.92">Quantise and engrave the chart</li>
+    </ol>
+    <button id="btn-cancel" class="ghost">Cancel</button>
+  </div>
+</section>
+
+<!-- ─── result ────────────────────────────────────────────────────────── -->
+<section id="view-score" class="view hidden">
+  <div class="score-head">
+    <div>
+      <h2 id="s-title">—</h2>
+      <div class="badges">
+        <span class="pill" id="s-tempo"></span>
+        <span class="pill" id="s-meter"></span>
+        <span class="pill" id="s-swing"></span>
+        <span class="pill pill-muted" id="s-kit"></span>
+        <a class="pill pill-link" id="s-source" target="_blank" rel="noopener">source ↗</a>
+      </div>
+    </div>
+    <div class="downloads">
+      <a id="dl-midi" class="ghost" download>MIDI</a>
+      <a id="dl-xml" class="ghost" download>MusicXML</a>
+      <button id="btn-print" class="ghost">Print</button>
+    </div>
+  </div>
+
+  <div class="transport">
+    <button id="btn-play" class="primary play">▶</button>
+    <div class="track-select" id="track-select">
+      <button data-src="youtube" class="seg">Original</button>
+      <button data-src="drums" class="seg active">Drums only</button>
+      <button data-src="backing" class="seg">Backing (no drums)</button>
+      <button data-src="click" class="seg">Notation</button>
+    </div>
+    <label class="tspeed">Speed
+      <input id="speed" type="range" min="0.4" max="1.25" step="0.05" value="1">
+      <output id="speed-out">1.00×</output>
+    </label>
+    <label class="check"><input id="opt-met" type="checkbox"> Click</label>
+    <label class="check"><input id="opt-follow" type="checkbox" checked> Follow</label>
+    <div class="loopbox">
+      <span id="loop-label" class="muted">Loop: off</span>
+      <button id="btn-loop-clear" class="ghost small">Clear</button>
+    </div>
+    <span id="clock" class="clock">0:00</span>
+  </div>
+
+  <div id="yt-wrap" class="yt-wrap hidden"><div id="yt-player"></div></div>
+  <audio id="audio" preload="auto"></audio>
+
+  <div class="editbar">
+    <label class="check"><input id="opt-simple" type="checkbox"> <b>Simple</b></label>
+    <label class="tspeed">Detail
+      <input id="detail" type="range" min="30" max="100" step="5" value="90">
+      <output id="detail-out">90%</output>
+    </label>
+    <span id="bar-count" class="pill pill-muted"></span>
+    <label class="check"><input id="opt-edit" type="checkbox"> Edit mode</label>
+    <div id="palette" class="palette hidden"></div>
+    <span class="muted small" id="edit-hint"></span>
+  </div>
+
+  <div id="score" class="score"></div>
+  <p class="footnote muted small">
+    Click a bar to set the loop start, shift-click to set the end. <b>Simple</b> reduces the
+    chart to a plain kick / snare / hi-hat groove on an 8th-note grid — ideal for learning
+    the song before tackling the full part. <b>Detail</b> hides the quietest hits when a
+    chart comes out too busy. Both change what you see and print, not the MIDI. Automatic transcription is a starting point: turn on Edit mode to fix
+    anything it misheard.
+  </p>
+</section>
+
+<script src="vendor/vexflow.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
