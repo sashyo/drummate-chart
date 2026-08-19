@@ -203,6 +203,28 @@ input[type=range]{accent-color:var(--pink); width:100%}
   background:var(--paper); border:2px solid #000; box-shadow:2px 2px 0 #000}
 .palette button.active{background:var(--yellow); font-weight:700}
 
+/* ── teach mode ─────────────────────────────────────────── */
+.lesson{position:relative; background:var(--paper); border:var(--border);
+  box-shadow:var(--shadow-pink); color:var(--ink); padding:18px 20px 16px; margin:0 0 18px}
+.lesson::before{content:"TEACH"; position:absolute; top:-1rem; left:5%;
+  transform:rotate(-5deg); font-family:var(--f-marker); font-size:.95rem;
+  color:#000; background:var(--yellow); border:3px solid #000;
+  box-shadow:var(--shadow-xs); padding:.3rem .7rem}
+.lesson h3{margin:0 0 .2rem; font-family:var(--f-display); font-weight:400;
+  letter-spacing:1px; text-transform:uppercase; font-size:1.15rem}
+.lesson .coverage{font-family:var(--f-mono); font-size:.72rem; color:#6a6355;
+  text-transform:uppercase; margin-bottom:10px}
+.lesson-steps{display:flex; flex-wrap:wrap; gap:14px; margin:8px 0 4px}
+.lesson-step{border:2px solid #000; background:#fffdf7; box-shadow:3px 3px 0 rgba(0,0,0,.85);
+  padding:8px 10px 6px}
+.lesson-step .step-name{font-family:var(--f-mono); font-weight:700; font-size:.7rem;
+  text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px}
+.lesson-step .step-hint{font-family:var(--f-mono); font-size:.65rem; color:#6a6355; margin-top:2px}
+.lesson-tips{margin:12px 0 0; padding:0 0 0 1.2rem; font-size:.9rem}
+.lesson-tips li{margin:.3rem 0}
+.lesson-tips b{background:var(--yellow); padding:0 .25em}
+@media print{ .lesson::before{display:none} }
+
 /* ── symbol key ─────────────────────────────────────────── */
 .legend{display:flex; flex-wrap:wrap; gap:0 8px; align-items:flex-end;
   padding:6px 10px 10px; margin:0 6px 12px;

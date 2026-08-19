@@ -42,7 +42,7 @@ const S = {
   jobId:null, score:null, poll:null,
   source:'drums', playing:false, speed:1,
   loopFrom:null, loopTo:null,
-  editing:false, brush:'snare', detail:90, simple:false,
+  editing:false, brush:'snare', detail:90, simple:false, teach:false,
   cursorBar:-1, systems:[], yt:null, ytReady:false,
   ctx:null, scheduled:[], schedTimer:null, playFrom:0, playStarted:0,
 };
@@ -242,6 +242,186 @@ function watch(jobId){
   }, 700);
 }
 
+
+/* ── teach mode: find the groove, layer it, explain it ────────────────── */
+const CLASS_MAP={openhh:'cym', ride:'cym', hihat:'cym', crash:'cym',
+                 tom_hi:'tom', tom_mid:'tom', tom_low:'tom',
+                 kick:'kick', snare:'snare', hhfoot:'kick'};
+
+function grooveOf(bar){
+  /* fingerprint a bar on the 8th grid by drum class */
+  const slot=PPQ/2, seen=new Map();
+  for(const h of bar.hits){
+    if(h.ghost) continue;
+    const cls=CLASS_MAP[h.inst]||'cym';
+    const tick=Math.min(S.score.ticksPerBar-slot, Math.round(h.tick/slot)*slot);
+    const key=cls+':'+tick;
+    if(!seen.has(key)) seen.set(key,{tick, cls, inst:h.inst, velocity:h.velocity||0.8});
+  }
+  return [...seen.values()].sort((a,b)=>a.tick-b.tick);
+}
+
+function analyzeGroove(){
+  /* Per-slot voting: a slot is part of THE groove when most bars hit it.
+   * Exact-fingerprint matching fails on real transcriptions - residual
+   * detection noise makes nearly every bar unique. */
+  const grooves=[];
+  for(const b of S.score.bars){
+    if(b.empty) continue;
+    const g=grooveOf(b);
+    if(!g.length || g.some(x=>x.cls==='tom')) continue;   // fills aren't the groove
+    grooves.push({g, number:b.number});
+  }
+  if(grooves.length<2) return null;
+  const freq=new Map();
+  for(const {g} of grooves)
+    for(const h of g){
+      const k=h.cls+':'+h.tick;
+      const e=freq.get(k)||{n:0, h};
+      e.n++; freq.set(k, e);
+    }
+  const N=grooves.length;
+  const core=[...freq.values()].filter(e=>e.n>=0.55*N).map(e=>e.h)
+    .sort((a,b)=>a.tick-b.tick||DRUMS[a.inst].order-DRUMS[b.inst].order);
+  if(core.length<3) return null;
+  const coreKeys=new Set(core.map(h=>h.cls+':'+h.tick));
+  let match=0; const matchBars=[];
+  for(const {g, number} of grooves){
+    const keys=new Set(g.map(h=>h.cls+':'+h.tick));
+    let inter=0;
+    for(const k of keys) if(coreKeys.has(k)) inter++;
+    if(inter/Math.max(1, keys.size+coreKeys.size-inter) >= 0.7){
+      match++; matchBars.push(number);
+    }
+  }
+  return {hits:core, share:match/N, bars:matchBars};
+}
+
+function renderBarInto(el, hits, width, withCounts){
+  const r=new VF.Renderer(el, VF.Renderer.Backends.SVG);
+  r.resize(width, 128);
+  const ctx=r.getContext();
+  const stave=new VF.Stave(4, 22, width-10, {num_lines:5});
+  stave.setContext(ctx).draw();
+  const bar={hits:hits.map(h=>({...h})), subdivision:2};
+  const laid=layoutBar(bar, S.score.beatsPerBar);
+  const voices=[], beams=[];
+  for(const [elems,dir] of [[laid.up,'up'],[laid.down,'down']]){
+    if(dir==='down' && !elems.some(e=>e.type==='note')) continue;
+    const notes=buildNotes(elems, dir);
+    if(!notes.length) continue;
+    if(withCounts && dir==='up')
+      for(const n of notes){
+        if(n.el.type!=='note') continue;
+        const t=n.el.tick??0;
+        const txt = t%PPQ===0 ? String(Math.floor(t/PPQ)+1) : '&';
+        try{
+          n.vf.addModifier(new VF.Annotation(txt).setFont('JetBrains Mono',9)
+            .setVerticalJustify(VF.AnnotationVerticalJustify.BOTTOM), 0);
+        }catch(_){}
+      }
+    const v=new VF.Voice({num_beats:S.score.beatsPerBar, beat_value:4});
+    v.setStrict(false); v.addTickables(notes.map(n=>n.vf));
+    voices.push(v);
+    VF.Beam.generateBeams(notes.filter(n=>n.el.type==='note').map(n=>n.vf), {
+      groups:[new VF.Fraction(1,4)],
+      stem_direction: dir==='up'?VF.Stem.UP:VF.Stem.DOWN,
+    }).forEach(b=>beams.push(b));
+  }
+  if(voices.length){
+    const fmt=new VF.Formatter();
+    fmt.joinVoices(voices); fmt.formatToStave(voices, stave);
+    voices.forEach(v=>v.draw(ctx, stave));
+    beams.forEach(b=>b.setContext(ctx).draw());
+  }
+}
+
+function beatName(tick){
+  const beat=Math.floor(tick/PPQ)+1;
+  return tick%PPQ===0 ? String(beat) : 'the & of '+beat;
+}
+function listBeats(ticks){
+  const parts=ticks.map(beatName);
+  return parts.length<=1 ? parts.join('') :
+    parts.slice(0,-1).join(', ')+' and '+parts[parts.length-1];
+}
+
+function grooveTips(core){
+  const tips=[];
+  const bpm=Math.round(S.score.tempo);
+  tips.push(`Full speed is <b>\u2669 = ${bpm}</b>. Start around 65% with the speed slider and only speed up when a loop feels easy.`);
+  const kicks=core.hits.filter(h=>h.cls==='kick').map(h=>h.tick);
+  const snares=core.hits.filter(h=>h.cls==='snare').map(h=>h.tick);
+  const cyms=core.hits.filter(h=>h.cls==='cym').map(h=>h.tick);
+  if(cyms.length){
+    const off=cyms.every(t=>t%PPQ!==0);
+    if(off) tips.push(`Right hand: hi-hat on the <b>offbeats only</b> (every "&") \u2014 count "1 <b>&</b> 2 <b>&</b>" and play on the &s.`);
+    else if(cyms.length>=S.score.beatsPerBar*2-1) tips.push(`Right hand: <b>steady 8th notes</b> on the hi-hat \u2014 "1 & 2 & 3 & 4 &", no gaps.`);
+    else tips.push(`Right hand: hi-hat on <b>${listBeats(cyms)}</b>.`);
+  }
+  if(snares.length){
+    const backbeat = snares.length===2 && snares.every(t=>t===PPQ||t===3*PPQ);
+    tips.push(backbeat
+      ? `Left hand: snare on <b>2 and 4</b> \u2014 the classic backbeat. Land it with confidence; it drives the song.`
+      : `Left hand: snare on <b>${listBeats(snares)}</b>.`);
+  }
+  if(kicks.length) tips.push(`Right foot: kick on <b>${listBeats(kicks)}</b>. Say it out loud while you play the hats \u2014 the mouth teaches the foot.`);
+  const opens=S.score.bars.reduce((a,b)=>a+b.hits.filter(h=>h.inst==='openhh').length,0);
+  if(opens>3) tips.push(`Notes with a <b>\u25cb</b> are open hi-hats \u2014 loosen your hi-hat foot there, close it on the next hit.`);
+  const ghosts=S.score.bars.reduce((a,b)=>a+b.hits.filter(h=>h.ghost).length,0);
+  if(ghosts>3) tips.push(`Notes in <b>(parentheses)</b> are ghost notes \u2014 tiny taps, felt more than heard. Ignore them until the groove is solid.`);
+  const fills=S.score.bars.filter(b=>b.hits.some(h=>(CLASS_MAP[h.inst]||'')==='tom')).map(b=>b.number);
+  if(fills.length) tips.push(`Fills live in bars <b>${fills.slice(0,6).join(', ')}${fills.length>6?'\u2026':''}</b>. Learn the groove first; add fills last.`);
+  tips.push(`Loop one bar (click it; shift-click extends), turn on <b>Click</b>, and stay with a loop until you can hold it for a minute without thinking.`);
+  return tips;
+}
+
+function renderLesson(){
+  const host=$('#lesson');
+  if(!host) return;
+  host.classList.toggle('hidden', !S.teach);
+  if(!S.teach || !S.score) return;
+  host.innerHTML='';
+  const core=analyzeGroove();
+  if(!core){ host.innerHTML='<h3>Teach</h3><p>No repeating groove found \u2014 use Simple mode and loop short sections.</p>'; return; }
+
+  const h3=document.createElement('h3');
+  h3.textContent='The groove to learn';
+  const cov=document.createElement('div');
+  cov.className='coverage';
+  cov.textContent=`this one pattern is ${(100*core.share).toFixed(0)}% of the song \u2014 e.g. bars ${core.bars.slice(0,4).join(', ')}`;
+  host.append(h3, cov);
+
+  const steps=document.createElement('div');
+  steps.className='lesson-steps';
+  host.appendChild(steps);
+  const layers=[
+    ['Step 1 \u00b7 right hand', core.hits.filter(h=>h.cls==='cym'), 'count out loud: 1 & 2 & 3 & 4 &'],
+    ['Step 2 \u00b7 add the snare', core.hits.filter(h=>h.cls!=='kick'), 'hands only \u2014 no feet yet'],
+    ['Step 3 \u00b7 add the kick', core.hits, 'the full groove \u2014 loop it'],
+  ];
+  let prevLen=-1;
+  for(const [name,hits,hint] of layers){
+    if(!hits.length || hits.length===prevLen) continue;   // skip no-op layers
+    prevLen=hits.length;
+    const step=document.createElement('div');
+    step.className='lesson-step';
+    const nm=document.createElement('div'); nm.className='step-name'; nm.textContent=name;
+    const box=document.createElement('div');
+    const ht=document.createElement('div'); ht.className='step-hint'; ht.textContent=hint;
+    step.append(nm, box, ht);
+    steps.appendChild(step);
+    try{ renderBarInto(box, hits, 330, true); }catch(_){ step.remove(); }
+  }
+
+  const ul=document.createElement('ul');
+  ul.className='lesson-tips';
+  for(const t of grooveTips(core)){
+    const li=document.createElement('li'); li.innerHTML=t; ul.appendChild(li);
+  }
+  host.appendChild(ul);
+}
+
 /* ── rendering ────────────────────────────────────────────────────────── */
 
 function openScore(score){
@@ -399,6 +579,7 @@ function renderLegend(host){
 function renderScore(){
   const host=$('#score');
   host.innerHTML=''; S.systems=[];
+  renderLesson();
   if($('#opt-key') ? $('#opt-key').checked : true) renderLegend(host);
   const bpb=S.score.beatsPerBar;
   const width=Math.max(340, host.clientWidth-16);
@@ -889,6 +1070,15 @@ function init(){
   });
   on('#opt-simple','change', e=>{
     S.simple=e.target.checked;
+    if(S.score) renderScore();
+  });
+  on('#opt-teach','change', e=>{
+    S.teach=e.target.checked;
+    if(S.teach && !S.simple){                 // teach implies the simple chart
+      S.simple=true;
+      const cb=$('#opt-simple'); if(cb) cb.checked=true;
+    }
+    renderLesson();
     if(S.score) renderScore();
   });
   on('#detail','input', e=>{

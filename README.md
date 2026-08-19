@@ -47,6 +47,13 @@ on CPU; a full song a few minutes.
   to the audio, plus the backing track as `song.mp3` and the isolated kit as
   `drums.mp3` so misses mute the drums. Unzip it into Clone Hero's `Songs`
   folder and hit Scan Songs.
+- **Teach me** finds the song's core groove (per-slot voting across bars, so
+  detection noise doesn't hide the pattern), shows it as the classic layered
+  lesson — right hand first, then add the snare, then the kick, with the
+  count written under the notes — and generates practice tips from the
+  transcription itself: which limb plays what and where, open-hat and
+  ghost-note warnings, where the fills live, and how to work with the speed
+  slider, loop and click.
 - **Simple mode** reduces the chart to a plain kick / snare / hi-hat groove on an
   8th-note grid, with no ornaments — the version you learn first.
 - **Thin out a busy chart** with the *Detail* slider — it hides the quietest hits
