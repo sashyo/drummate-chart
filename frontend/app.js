@@ -297,13 +297,20 @@ function analyzeGroove(){
   return {hits:core, share:match/N, bars:matchBars};
 }
 
-function renderBarInto(el, hits, width, withCounts){
+function countLabel(t){
+  if(t%PPQ===0) return String(Math.floor(t/PPQ)+1);
+  if(t%(PPQ/2)===0) return '&';
+  return t%PPQ===PPQ/4 ? 'e' : 'a';
+}
+
+function renderBarInto(el, hits, width, withCounts, subdivision=2){
+  el.classList.add('step-bar');
   const r=new VF.Renderer(el, VF.Renderer.Backends.SVG);
   r.resize(width, 128);
   const ctx=r.getContext();
   const stave=new VF.Stave(4, 22, width-10, {num_lines:5});
   stave.setContext(ctx).draw();
-  const bar={hits:hits.map(h=>({...h})), subdivision:2};
+  const bar={hits:hits.map(h=>({...h})), subdivision};
   const laid=layoutBar(bar, S.score.beatsPerBar);
   const voices=[], beams=[];
   for(const [elems,dir] of [[laid.up,'up'],[laid.down,'down']]){
@@ -313,8 +320,7 @@ function renderBarInto(el, hits, width, withCounts){
     if(withCounts && dir==='up')
       for(const n of notes){
         if(n.el.type!=='note') continue;
-        const t=n.el.tick??0;
-        const txt = t%PPQ===0 ? String(Math.floor(t/PPQ)+1) : '&';
+        const txt = countLabel(n.el.tick??0);
         try{
           n.vf.addModifier(new VF.Annotation(txt).setFont('JetBrains Mono',9)
             .setVerticalJustify(VF.AnnotationVerticalJustify.BOTTOM), 0);
@@ -333,6 +339,67 @@ function renderBarInto(el, hits, width, withCounts){
     fmt.joinVoices(voices); fmt.formatToStave(voices, stave);
     voices.forEach(v=>v.draw(ctx, stave));
     beams.forEach(b=>b.setContext(ctx).draw());
+  }
+  const ph=document.createElement('div');
+  ph.className='playhead';
+  el.appendChild(ph);
+  return {x0:stave.getNoteStartX(), x1:width-12};
+}
+
+/* ── lesson playback: loop any card through the synth kit ─────────────── */
+function stopLesson(){
+  if(S.lessonTimer){ clearInterval(S.lessonTimer); S.lessonTimer=null; }
+  S.lessonRun=null;
+  $$('.lesson-step.playing').forEach(e=>e.classList.remove('playing'));
+  $$('.lesson-step .playhead').forEach(e=>e.style.opacity=0);
+  $$('.step-play').forEach(b=>b.textContent='\u25b6');
+}
+
+function playLesson(card, seq, pct){
+  const same = S.lessonRun && S.lessonRun.card===card;
+  stopLesson();
+  if(same) return;                                   // toggle off
+  pause();
+  ensureCtx(); S.ctx.resume();
+  const bpm=Math.max(30, S.score.tempo*pct);
+  const spb=60/bpm, bpb=S.score.beatsPerBar, barLen=bpb*spb;
+  let t0=S.ctx.currentTime+0.12;
+  for(let i=0;i<bpb;i++) hit(i?'click':'click1', t0+i*spb, 1);   // count-in
+  t0+=bpb*spb;
+  card.classList.add('playing');
+  card.querySelector('.step-play').textContent='\u25a0';
+  const run={card, seq, t0, barLen, spb, done:0};
+  S.lessonRun=run;
+  S.lessonTimer=setInterval(()=>{
+    const ahead=S.ctx.currentTime+0.5;
+    while(run.t0+run.done*barLen < ahead){
+      const bar=seq[run.done%seq.length];
+      const start=run.t0+run.done*barLen;
+      for(let b2=0;b2<bpb;b2++) hit(b2?'click':'click1', start+b2*spb, 0.85);
+      for(const h of bar.hits)
+        hit(h.inst, start+(h.tick/PPQ)*spb, h.velocity??0.8);
+      run.done++;
+    }
+  }, 110);
+}
+
+function lessonPlayhead(){
+  const run=S.lessonRun;
+  if(!run || !S.ctx) return;
+  const el=run.card;
+  const boxes=[...el.querySelectorAll('.step-bar')];
+  if(!boxes.length) return;
+  const elapsed=S.ctx.currentTime-run.t0;
+  boxes.forEach(b2=>{ const p=b2.querySelector('.playhead'); if(p) p.style.opacity=0; });
+  if(elapsed<0) return;                              // still counting in
+  const barIdx=Math.floor(elapsed/run.barLen)%run.seq.length;
+  const frac=(elapsed%run.barLen)/run.barLen;
+  const box=boxes[Math.min(barIdx, boxes.length-1)];
+  const geo=run.seq[Math.min(barIdx, run.seq.length-1)].geo||{x0:30,x1:300};
+  const ph=box.querySelector('.playhead');
+  if(ph){
+    ph.style.opacity=1;
+    ph.style.left=(geo.x0+frac*(geo.x1-geo.x0))+'px';
   }
 }
 
@@ -376,10 +443,59 @@ function grooveTips(core){
   return tips;
 }
 
+function findFill(){
+  let best=null;
+  for(const b of S.score.bars){
+    if(b.empty) continue;
+    const toms=b.hits.filter(h=>(CLASS_MAP[h.inst]||'')==='tom').length;
+    if(!toms) continue;
+    const score=toms*4+b.hits.length;
+    if(!best || score>best.score) best={score, bar:b};
+  }
+  return best && best.bar;
+}
+
+function addStepCard(container, name, hint, displayBars, seq, opts={}){
+  const step=document.createElement('div');
+  step.className='lesson-step';
+  const nm=document.createElement('div'); nm.className='step-name'; nm.textContent=name;
+  step.appendChild(nm);
+  const row=document.createElement('div'); row.className='step-bars';
+  step.appendChild(row);
+  try{
+    displayBars.forEach((d,i)=>{
+      const box=document.createElement('div');
+      if(d.tag){
+        const tag=document.createElement('div'); tag.className='bar-tag';
+        tag.textContent=d.tag; box.appendChild(tag);
+      }
+      row.appendChild(box);
+      const geo=renderBarInto(box, d.hits, d.width||330, d.counts!==false, d.subdivision||2);
+      // remember geometry on every seq entry that displays in this box
+      seq.forEach((sq,si)=>{ if((sq.box??si)===i) sq.geo=geo; });
+    });
+  }catch(_){ step.remove(); return; }
+  const ctl=document.createElement('div'); ctl.className='step-controls';
+  const play=document.createElement('button'); play.className='step-play'; play.textContent='\u25b6';
+  const sel=document.createElement('select');
+  for(const [v,l] of [[0.5,'50%'],[0.7,'70%'],[0.85,'85%'],[1,'100%']]){
+    const o=document.createElement('option'); o.value=v; o.textContent=l;
+    if(v===0.7) o.selected=true;
+    sel.appendChild(o);
+  }
+  ctl.append(play, sel);
+  const ht=document.createElement('div'); ht.className='step-hint'; ht.textContent=hint;
+  step.append(ctl, ht);
+  play.onclick=()=>playLesson(step, seq, Number(sel.value));
+  sel.onchange=()=>{ if(S.lessonRun && S.lessonRun.card===step) playLesson(step, seq, Number(sel.value)); };
+  container.appendChild(step);
+}
+
 function renderLesson(){
   const host=$('#lesson');
   if(!host) return;
   host.classList.toggle('hidden', !S.teach);
+  stopLesson();
   if(!S.teach || !S.score) return;
   host.innerHTML='';
   const core=analyzeGroove();
@@ -389,29 +505,39 @@ function renderLesson(){
   h3.textContent='The groove to learn';
   const cov=document.createElement('div');
   cov.className='coverage';
-  cov.textContent=`this one pattern is ${(100*core.share).toFixed(0)}% of the song \u2014 e.g. bars ${core.bars.slice(0,4).join(', ')}`;
+  cov.textContent=`this one pattern is ${(100*core.share).toFixed(0)}% of the song \u2014 e.g. bars ${core.bars.slice(0,4).join(', ')} \u00b7 press \u25b6 on a card to hear and loop it (with count-in + click)`;
   host.append(h3, cov);
 
   const steps=document.createElement('div');
   steps.className='lesson-steps';
   host.appendChild(steps);
+
+  const hats=core.hits.filter(h=>h.cls==='cym');
+  const hands=core.hits.filter(h=>h.cls!=='kick');
   const layers=[
-    ['Step 1 \u00b7 right hand', core.hits.filter(h=>h.cls==='cym'), 'count out loud: 1 & 2 & 3 & 4 &'],
-    ['Step 2 \u00b7 add the snare', core.hits.filter(h=>h.cls!=='kick'), 'hands only \u2014 no feet yet'],
-    ['Step 3 \u00b7 add the kick', core.hits, 'the full groove \u2014 loop it'],
+    ['Step 1 \u00b7 right hand', hats, 'count out loud with the click'],
+    ['Step 2 \u00b7 add the snare', hands, 'hands only \u2014 no feet yet'],
+    ['Step 3 \u00b7 the full groove', core.hits, 'loop until it plays itself'],
   ];
   let prevLen=-1;
   for(const [name,hits,hint] of layers){
-    if(!hits.length || hits.length===prevLen) continue;   // skip no-op layers
+    if(!hits.length || hits.length===prevLen) continue;
     prevLen=hits.length;
-    const step=document.createElement('div');
-    step.className='lesson-step';
-    const nm=document.createElement('div'); nm.className='step-name'; nm.textContent=name;
-    const box=document.createElement('div');
-    const ht=document.createElement('div'); ht.className='step-hint'; ht.textContent=hint;
-    step.append(nm, box, ht);
-    steps.appendChild(step);
-    try{ renderBarInto(box, hits, 330, true); }catch(_){ step.remove(); }
+    addStepCard(steps, name, hint, [{hits}], [{hits}]);
+  }
+
+  const fill=findFill();
+  if(fill){
+    const fhits=fill.hits.map(h=>({...h}));
+    addStepCard(steps, `The fill (bar ${fill.number})`,
+      'slower is fine \u2014 accuracy first',
+      [{hits:fhits, subdivision:fill.subdivision, counts:true}],
+      [{hits:fhits}]);
+    addStepCard(steps, 'Groove \u00d73 + fill',
+      'how it sits in the song \u2014 fill lands every 4th bar',
+      [{hits:core.hits, tag:'groove \u00d73', width:300},
+       {hits:fhits, subdivision:fill.subdivision, tag:'then the fill', width:300, counts:false}],
+      [{hits:core.hits, box:0},{hits:core.hits, box:0},{hits:core.hits, box:0},{hits:fhits, box:1}]);
   }
 
   const ul=document.createElement('ul');
@@ -764,6 +890,7 @@ function seek(t){
   }else{ $('#audio').currentTime=t; }
 }
 function play(){
+  stopLesson();
   if(S.source==='youtube'){ if(S.yt&&S.ytReady) S.yt.playVideo(); }
   else if(S.source==='click'){
     ensureCtx(); S.ctx.resume();
@@ -953,6 +1080,7 @@ function updateLoopLabel(){
 function tick(){
   requestAnimationFrame(tick);
   if(!S.score) return;
+  lessonPlayhead();
   const pos=position();
   $('#clock').textContent=`${fmtTime(pos)} / ${fmtTime(duration())}`;
   pump(pos);

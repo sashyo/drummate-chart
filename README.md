@@ -53,7 +53,10 @@ on CPU; a full song a few minutes.
   count written under the notes — and generates practice tips from the
   transcription itself: which limb plays what and where, open-hat and
   ghost-note warnings, where the fills live, and how to work with the speed
-  slider, loop and click.
+  slider, loop and click. Every card is playable: press \u25b6 to hear that
+  layer looped through the built-in kit at 50-100% speed, with a count-in,
+  a click, and a moving playhead \u2014 including the song's main fill and a
+  "groove \u00d73 + fill" rotation, the way fills are actually practised.
 - **Simple mode** reduces the chart to a plain kick / snare / hi-hat groove on an
   8th-note grid, with no ornaments — the version you learn first.
 - **Thin out a busy chart** with the *Detail* slider — it hides the quietest hits

@@ -220,10 +220,21 @@ input[type=range]{accent-color:var(--pink); width:100%}
 .lesson-step .step-name{font-family:var(--f-mono); font-weight:700; font-size:.7rem;
   text-transform:uppercase; letter-spacing:.05em; margin-bottom:2px}
 .lesson-step .step-hint{font-family:var(--f-mono); font-size:.65rem; color:#6a6355; margin-top:2px}
+.lesson-step.playing{border-color:var(--pink); box-shadow:3px 3px 0 var(--pink)}
+.step-bars{display:flex; gap:8px; align-items:flex-start}
+.step-bar{position:relative}
+.bar-tag{font-family:var(--f-marker); font-size:.7rem; color:#a3392c}
+.playhead{position:absolute; top:16px; bottom:14px; width:2px;
+  background:var(--pink); opacity:0; pointer-events:none;
+  transition:opacity .15s}
+.step-controls{display:flex; gap:6px; align-items:center; margin-top:4px}
+.step-controls .step-play{padding:2px 12px; font-size:.85rem;
+  background:var(--pink); color:#fff; border:2px solid #000; box-shadow:2px 2px 0 #000}
+.step-controls select{width:auto; padding:3px 6px; font-size:.7rem; border-width:2px}
 .lesson-tips{margin:12px 0 0; padding:0 0 0 1.2rem; font-size:.9rem}
 .lesson-tips li{margin:.3rem 0}
 .lesson-tips b{background:var(--yellow); padding:0 .25em}
-@media print{ .lesson::before{display:none} }
+@media print{ .lesson::before,.step-controls,.playhead{display:none !important} }
 
 /* ── symbol key ─────────────────────────────────────────── */
 .legend{display:flex; flex-wrap:wrap; gap:0 8px; align-items:flex-end;
