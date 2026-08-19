@@ -62,7 +62,8 @@ class BeatGrid:
 
 
 def analyse(y: np.ndarray, mix: np.ndarray | None = None, progress=None,
-            beats_per_bar: int = 4, fixed_tempo: float | None = None) -> BeatGrid:
+            beats_per_bar: int = 4, fixed_tempo: float | None = None,
+            lock_grid: bool = False) -> BeatGrid:
     import librosa
 
     if progress:
@@ -86,6 +87,16 @@ def analyse(y: np.ndarray, mix: np.ndarray | None = None, progress=None,
             onset_envelope=onset_env, sr=SR, hop_length=HOP, bpm=tempo, trim=False)
 
     beat_times = librosa.frames_to_time(beats, sr=SR, hop_length=HOP)
+
+    if lock_grid or fixed_tempo:
+        # Clock-time grid: one constant BPM for the whole song, as played to a
+        # click. The tracked beats only pin down the tempo and the phase; the
+        # grid itself is rigid, so quantise variance comes purely from the
+        # player, not from beat-tracker wobble.
+        bpm = float(fixed_tempo or tempo)
+        beat_times = _locked_grid(onset_env, bpm, len(y) / SR)
+        if progress:
+            progress(0.55, f"Locked grid at {bpm:.1f} BPM")
     if len(beat_times) < 4:  # pathological input - synthesise a grid
         dur = len(y) / SR
         step = 60.0 / (tempo or 120.0)
@@ -106,6 +117,27 @@ def analyse(y: np.ndarray, mix: np.ndarray | None = None, progress=None,
         downbeat_index=downbeat,
         tempo_curve=tempo_curve,
     )
+
+
+def _locked_grid(onset_env: np.ndarray, bpm: float, duration: float) -> np.ndarray:
+    """Constant-tempo beat grid; the phase is fitted to the onsets.
+
+    Scores a cycle of candidate offsets by summing onset strength at each
+    grid line and keeps the best - i.e. the grid alignment real hits agree
+    with most.
+    """
+    import librosa
+    period = 60.0 / bpm
+    times = librosa.frames_to_time(np.arange(len(onset_env)), sr=SR, hop_length=HOP)
+    best_phase, best = 0.0, -1.0
+    for phase in np.linspace(0, period, 48, endpoint=False):
+        grid = np.arange(phase, duration, period)
+        idx = np.searchsorted(times, grid)
+        idx = idx[idx < len(onset_env)]
+        score = float(onset_env[idx].sum())
+        if score > best:
+            best, best_phase = score, phase
+    return np.arange(best_phase, max(duration, best_phase + 4 * period), period)
 
 
 def _fix_octave(tempo: float) -> float:

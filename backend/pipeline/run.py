@@ -15,6 +15,7 @@ class Options:
     end: float | None = None
     beats_per_bar: int = 4
     fixed_tempo: float | None = None
+    lock_grid: bool = False
     sensitivity: float = 1.0
     max_subdiv: int = 4
     allow_triplets: bool = True
@@ -67,7 +68,8 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
     n = min(len(stem.mono), len(mix))
     grid = rhythm.analyse(stem.mono[:n], mix=mix[:n], progress=progress,
                           beats_per_bar=opts.beats_per_bar,
-                          fixed_tempo=opts.fixed_tempo)
+                          fixed_tempo=opts.fixed_tempo,
+                          lock_grid=opts.lock_grid)
 
     det = onsets.detect(stem.mono, progress=progress, sensitivity=opts.sensitivity,
                         detect_toms=opts.detect_toms, cymbal_detail=opts.cymbal_detail)

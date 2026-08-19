@@ -173,6 +173,7 @@ function collectOptions(){
     cymbalDetail: $('#opt-cym').checked,
     detectSwing: $('#opt-swing').checked,
     separation: $('#opt-sep').value,
+    lockGrid: $('#opt-grid') ? $('#opt-grid').value==='lock' : false,
     renderAudio: true,
   };
 }

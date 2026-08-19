@@ -87,18 +87,21 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
     for b in sorted(set(bar_idx.tolist())):
         sel = np.where(bar_idx == b)[0]
         p = pos[sel]
-        best_n, best_cost = allowed[0], float("inf")
-        for n in allowed:
-            step = 1.0 / n
-            err = np.abs(p - np.round(p / step) * step)
-            cost = float(err.mean()) + GRIDS[n][2]
-            if cost < best_cost:
-                best_n, best_cost = n, cost
+
+        # De-lag: a laid-back or pushed bar sits at a roughly constant offset
+        # from the grid; without removing it, relaxed 8ths match the triplet
+        # grid better than the straight one. The offset is SEARCHED (a naive
+        # median over a dense 16th bar is bimodal and lands mid-grid) and only
+        # applied when the shifted bar really is coarse-grid-consistent.
+        p2 = p - _bar_lag(p)
+
+        prev_n = bars[int(b) - 1].subdivision if int(b) - 1 in bars else None
+        best_n = _choose_subdiv(p2, allowed, prev_n)
         bar = QBar(index=int(b), subdivision=best_n, grid_name=GRIDS[best_n][0])
 
         step = 1.0 / best_n
-        for i in sel:
-            snapped_beat = float(np.round(pos[i] / step) * step)
+        for k, i in enumerate(sel):
+            snapped_beat = float(np.round(p2[k] / step) * step)
             tick = int(round(snapped_beat * PPQ))
             tick = max(0, min(ticks_per_bar, tick))
             h = hits[i]
@@ -131,6 +134,77 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
 
     return QScore(bars=ordered, ppq=PPQ, beats_per_bar=bpb, ticks_per_bar=ticks_per_bar,
                   swing=swing, swing_ratio=ratio, tempo=grid.tempo)
+
+
+def _bar_lag(p: np.ndarray, limit: float = 0.2) -> float:
+    if len(p) < 3:
+        return 0.0
+    cost0 = float(np.median(_dist(p, 0.5)))
+    best_off, best_cost = 0.0, cost0
+    for off in np.linspace(-limit, limit, 41):
+        cost = float(np.median(_dist(p - off, 0.5)))
+        if cost < best_cost - 1e-9:
+            best_cost, best_off = cost, off
+    # Apply only when shifting is DECISIVELY better than staying put and the
+    # result is genuinely 8th-grid-consistent - zero-mean jitter can always
+    # shave a little off the median, and chasing that shaved every bar onto
+    # noise-fit offsets. 16th and triplet bars never pass at any offset.
+    if best_cost < 0.05 and best_cost < cost0 - 0.04 and abs(best_off) >= 0.06:
+        return best_off
+    return 0.0
+
+
+def _dist(p: np.ndarray, step: float) -> np.ndarray:
+    return np.abs(((p + step / 2) % step) - step / 2)
+
+
+def _choose_subdiv(p: np.ndarray, allowed: list[int],
+                   prev_n: int | None = None) -> int:
+    """Pick the coarsest grid the evidence justifies.
+
+    Aggregate snap error flips jittery 8ths onto phantom 16th (or triplet)
+    grids, because extra slots absorb noise. Instead each finer grid must be
+    DEMANDED by hits that are close to one of its exclusive slots and far
+    from every coarser slot. A single dead-centre hit (a real pickup) is
+    enough; borderline hits need two.
+    """
+    if len(p) == 0:
+        return 4 if 4 in allowed else allowed[0]
+    d8, d16, d32 = _dist(p, .5), _dist(p, .25), _dist(p, .125)
+    d3, d6 = _dist(p, 1 / 3), _dist(p, 1 / 6)
+
+    def votes(near, far_pairs, tight, strong_tight):
+        far = np.ones(len(p), dtype=bool)
+        for d, m in far_pairs:
+            far &= d > m
+        weak = int(np.sum((near < tight) & far))
+        strong = int(np.sum((near < strong_tight) & far
+                            & (far_pairs[0][0] > far_pairs[0][1] + 0.04)))
+        return weak, strong
+
+    def demanded(w, st, n):
+        if st >= 1:
+            return True
+        # Anti-flicker hysteresis: switching to a finer grid than the
+        # previous bar used takes three borderline hits, not two - a real
+        # 8th->16th transition brings six or more.
+        need = 3 if (prev_n is not None and n > prev_n) else 2
+        return w >= need
+
+    c32 = votes(d32, [(d16, 0.09)], 0.05, 0.035)
+    c6 = votes(d6, [(d16, 0.09), (d3, 0.06)], 0.05, 0.035)
+    c16 = votes(d16, [(d8, 0.16)], 0.08, 0.055)
+    c3 = votes(d3, [(d8, 0.15), (d16, 0.08)], 0.07, 0.05)
+
+    if 8 in allowed and demanded(*c32, 8):
+        return 8
+    if 6 in allowed and demanded(*c6, 6) and c6[0] > c16[0]:
+        return 6
+    if 3 in allowed and demanded(*c3, 3) and c3[0] > c16[0]:
+        return 3
+    if 4 in allowed and demanded(*c16, 4):
+        return 4
+    return 2 if 2 in allowed else allowed[0]
 
 
 def _merge(notes: list[QNote]) -> list[QNote]:

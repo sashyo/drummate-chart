@@ -71,6 +71,7 @@ class TranscribeRequest(BaseModel):
     cymbalDetail: bool = True
     detectSwing: bool = True
     separation: str = "htdemucs"
+    lockGrid: bool = False
     renderAudio: bool = True
 
 
@@ -88,6 +89,7 @@ def _opts(req: TranscribeRequest) -> Options:
         allow_triplets=req.allowTriplets, detect_toms=req.detectToms,
         cymbal_detail=req.cymbalDetail, detect_swing=req.detectSwing,
         separation=req.separation, render_audio=req.renderAudio,
+        lock_grid=req.lockGrid,
         cookies_from_browser=os.environ.get("DRUMS_COOKIES_FROM_BROWSER"),
         cookie_file=os.environ.get("DRUMS_COOKIE_FILE"),
     )
