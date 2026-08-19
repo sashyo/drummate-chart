@@ -43,6 +43,7 @@ const S = {
   source:'drums', playing:false, speed:1,
   loopFrom:null, loopTo:null,
   editing:false, brush:'snare', detail:90, simple:false, teach:false,
+  hatHand:(typeof localStorage!=='undefined' && localStorage.getItem('dm-hats-hand'))||'right',
   cursorBar:-1, systems:[], yt:null, ytReady:false,
   ctx:null, scheduled:[], schedTimer:null, playFrom:0, playStarted:0,
 };
@@ -274,17 +275,42 @@ function analyzeGroove(){
   }
   if(grooves.length<2) return null;
   const freq=new Map();
-  for(const {g} of grooves)
+  const classBars={};
+  for(const {g} of grooves){
+    const present=new Set();
     for(const h of g){
       const k=h.cls+':'+h.tick;
-      const e=freq.get(k)||{n:0, h};
-      e.n++; freq.set(k, e);
+      const e=freq.get(k)||{n:0, tick:h.tick, cls:h.cls, insts:new Map(), vsum:0};
+      e.n++; e.vsum+=h.velocity||0.8;
+      e.insts.set(h.inst,(e.insts.get(h.inst)||0)+1);
+      freq.set(k, e);
+      present.add(h.cls);
     }
+    for(const c of present) classBars[c]=(classBars[c]||0)+1;
+  }
   const N=grooves.length;
-  const core=[...freq.values()].filter(e=>e.n>=0.55*N).map(e=>e.h)
+  const byClass={};
+  for(const e of freq.values()) (byClass[e.cls]=byClass[e.cls]||[]).push(e);
+  const core=[];
+  for(const cls in byClass){
+    let sel=byClass[cls].filter(e=>e.n>=0.55*N);
+    // A drum that moves around never wins one slot outright, but a groove
+    // without its snare is simply the wrong groove. If the class plays in
+    // most bars, take its strongest slots anyway.
+    if(!sel.length && (classBars[cls]||0)>=0.5*N)
+      sel=byClass[cls].filter(e=>e.n>=0.3*N)
+        .sort((a,b)=>b.n-a.n).slice(0, cls==='cym'?8:3);
+    core.push(...sel);
+  }
+  const pick=e=>{
+    let inst=null, n=-1;
+    for(const [i2,c2] of e.insts) if(c2>n){ n=c2; inst=i2; }
+    return {tick:e.tick, cls:e.cls, inst, velocity:Math.min(1, e.vsum/e.n+0.15)};
+  };
+  const coreHits=core.map(pick)
     .sort((a,b)=>a.tick-b.tick||DRUMS[a.inst].order-DRUMS[b.inst].order);
-  if(core.length<3) return null;
-  const coreKeys=new Set(core.map(h=>h.cls+':'+h.tick));
+  if(coreHits.length<3) return null;
+  const coreKeys=new Set(coreHits.map(h=>h.cls+':'+h.tick));
   let match=0; const matchBars=[];
   for(const {g, number} of grooves){
     const keys=new Set(g.map(h=>h.cls+':'+h.tick));
@@ -294,7 +320,7 @@ function analyzeGroove(){
       match++; matchBars.push(number);
     }
   }
-  return {hits:core, share:match/N, bars:matchBars};
+  return {hits:coreHits, share:match/N, bars:matchBars};
 }
 
 function countLabel(t){
@@ -312,11 +338,12 @@ function renderBarInto(el, hits, width, withCounts, subdivision=2){
   stave.setContext(ctx).draw();
   const bar={hits:hits.map(h=>({...h})), subdivision};
   const laid=layoutBar(bar, S.score.beatsPerBar);
-  const voices=[], beams=[];
+  const voices=[], beams=[], drawn=[];
   for(const [elems,dir] of [[laid.up,'up'],[laid.down,'down']]){
     if(dir==='down' && !elems.some(e=>e.type==='note')) continue;
     const notes=buildNotes(elems, dir);
     if(!notes.length) continue;
+    drawn.push(...notes);
     if(withCounts && dir==='up')
       for(const n of notes){
         if(n.el.type!=='note') continue;
@@ -343,7 +370,18 @@ function renderBarInto(el, hits, width, withCounts, subdivision=2){
   const ph=document.createElement('div');
   ph.className='playhead';
   el.appendChild(ph);
-  return {x0:stave.getNoteStartX(), x1:width-12};
+  // where each tick actually sits on the engraved stave - the formatter does
+  // NOT space time linearly, so the playhead must follow the real noteheads
+  const mm=new Map();
+  for(const n of drawn){
+    if(n.el.type!=='note' || n.el.tick==null) continue;
+    try{
+      const x=n.vf.getAbsoluteX();
+      if(!mm.has(n.el.tick) || x<mm.get(n.el.tick)) mm.set(n.el.tick, x);
+    }catch(_){}
+  }
+  const marks=[...mm.entries()].map(([tick,x])=>({tick,x})).sort((a,b)=>a.tick-b.tick);
+  return {x0:stave.getNoteStartX(), x1:width-12, marks};
 }
 
 /* ── lesson playback: loop any card through the synth kit ─────────────── */
@@ -375,9 +413,10 @@ function playLesson(card, seq, pct){
     while(run.t0+run.done*barLen < ahead){
       const bar=seq[run.done%seq.length];
       const start=run.t0+run.done*barLen;
-      for(let b2=0;b2<bpb;b2++) hit(b2?'click':'click1', start+b2*spb, 0.85);
+      for(let b2=0;b2<bpb;b2++) hit(b2?'click':'click1', start+b2*spb, 0.45);
       for(const h of bar.hits)
-        hit(h.inst, start+(h.tick/PPQ)*spb, h.velocity??0.8);
+        hit(h.inst, start+(h.tick/PPQ)*spb,
+            h.accent ? 1.0 : Math.max(0.75, h.velocity??0.8));
       run.done++;
     }
   }, 110);
@@ -394,13 +433,26 @@ function lessonPlayhead(){
   if(elapsed<0) return;                              // still counting in
   const barIdx=Math.floor(elapsed/run.barLen)%run.seq.length;
   const frac=(elapsed%run.barLen)/run.barLen;
-  const box=boxes[Math.min(barIdx, boxes.length-1)];
-  const geo=run.seq[Math.min(barIdx, run.seq.length-1)].geo||{x0:30,x1:300};
+  const sq=run.seq[Math.min(barIdx, run.seq.length-1)];
+  const box=boxes[Math.min(sq.box??barIdx, boxes.length-1)];
+  const geo=sq.geo||{x0:30,x1:300};
   const ph=box.querySelector('.playhead');
-  if(ph){
-    ph.style.opacity=1;
-    ph.style.left=(geo.x0+frac*(geo.x1-geo.x0))+'px';
+  if(!ph) return;
+  ph.style.opacity=1;
+  const tpb=S.score.ticksPerBar;
+  const tick=frac*tpb;
+  const pts=[...(geo.marks||[])];
+  if(!pts.length || pts[0].tick>0) pts.unshift({tick:0, x:geo.x0});
+  pts.push({tick:tpb, x:geo.x1});
+  let x=pts[pts.length-1].x;
+  for(let i2=0;i2<pts.length-1;i2++){
+    if(tick>=pts[i2].tick && tick<pts[i2+1].tick){
+      const f=(tick-pts[i2].tick)/Math.max(1e-6, pts[i2+1].tick-pts[i2].tick);
+      x=pts[i2].x + f*(pts[i2+1].x-pts[i2].x);
+      break;
+    }
   }
+  ph.style.left=x+'px';
 }
 
 function beatName(tick){
@@ -413,7 +465,14 @@ function listBeats(ticks){
     parts.slice(0,-1).join(', ')+' and '+parts[parts.length-1];
 }
 
+function handNames(){
+  const hat = S.hatHand==='right' ? 'Right' : 'Left';
+  const snare = S.hatHand==='right' ? 'Left' : 'Right';
+  return {hat:hat+' hand', snare:snare+' hand'};
+}
+
 function grooveTips(core){
+  const H=handNames();
   const tips=[];
   const bpm=Math.round(S.score.tempo);
   tips.push(`Full speed is <b>\u2669 = ${bpm}</b>. Start around 65% with the speed slider and only speed up when a loop feels easy.`);
@@ -422,17 +481,17 @@ function grooveTips(core){
   const cyms=core.hits.filter(h=>h.cls==='cym').map(h=>h.tick);
   if(cyms.length){
     const off=cyms.every(t=>t%PPQ!==0);
-    if(off) tips.push(`Right hand: hi-hat on the <b>offbeats only</b> (every "&") \u2014 count "1 <b>&</b> 2 <b>&</b>" and play on the &s.`);
-    else if(cyms.length>=S.score.beatsPerBar*2-1) tips.push(`Right hand: <b>steady 8th notes</b> on the hi-hat \u2014 "1 & 2 & 3 & 4 &", no gaps.`);
-    else tips.push(`Right hand: hi-hat on <b>${listBeats(cyms)}</b>.`);
+    if(off) tips.push(`${H.hat} (hi-hat): play the <b>offbeats only</b> (every "&") \u2014 count "1 <b>&</b> 2 <b>&</b>" and play on the &s.`);
+    else if(cyms.length>=S.score.beatsPerBar*2-1) tips.push(`${H.hat} (hi-hat): <b>steady 8th notes</b> \u2014 "1 & 2 & 3 & 4 &", no gaps.`);
+    else tips.push(`${H.hat} (hi-hat): <b>${listBeats(cyms)}</b>.`);
   }
   if(snares.length){
     const backbeat = snares.length===2 && snares.every(t=>t===PPQ||t===3*PPQ);
     tips.push(backbeat
-      ? `Left hand: snare on <b>2 and 4</b> \u2014 the classic backbeat. Land it with confidence; it drives the song.`
-      : `Left hand: snare on <b>${listBeats(snares)}</b>.`);
+      ? `${H.snare} (snare): <b>2 and 4</b> \u2014 the classic backbeat. Land it with confidence; it drives the song.`
+      : `${H.snare} (snare): <b>${listBeats(snares)}</b>.`);
   }
-  if(kicks.length) tips.push(`Right foot: kick on <b>${listBeats(kicks)}</b>. Say it out loud while you play the hats \u2014 the mouth teaches the foot.`);
+  if(kicks.length) tips.push(`Kick foot: <b>${listBeats(kicks)}</b>. Say it out loud while you play the hats \u2014 the mouth teaches the foot.`);
   const opens=S.score.bars.reduce((a,b)=>a+b.hits.filter(h=>h.inst==='openhh').length,0);
   if(opens>3) tips.push(`Notes with a <b>\u25cb</b> are open hi-hats \u2014 loosen your hi-hat foot there, close it on the next hit.`);
   const ghosts=S.score.bars.reduce((a,b)=>a+b.hits.filter(h=>h.ghost).length,0);
@@ -506,7 +565,17 @@ function renderLesson(){
   const cov=document.createElement('div');
   cov.className='coverage';
   cov.textContent=`this one pattern is ${(100*core.share).toFixed(0)}% of the song \u2014 e.g. bars ${core.bars.slice(0,4).join(', ')} \u00b7 press \u25b6 on a card to hear and loop it (with count-in + click)`;
-  host.append(h3, cov);
+  const handRow=document.createElement('div');
+  handRow.className='hand-pick';
+  handRow.innerHTML=`hi-hats with: <select id="hat-hand">
+    <option value="right">right hand (crossed \u2014 standard)</option>
+    <option value="left">left hand (open-handed)</option></select>`;
+  host.append(h3, cov, handRow);
+  const hh=handRow.querySelector('#hat-hand');
+  hh.value=S.hatHand;
+  hh.onchange=()=>{ S.hatHand=hh.value;
+    try{ localStorage.setItem('dm-hats-hand', hh.value); }catch(_){}
+    renderLesson(); };
 
   const steps=document.createElement('div');
   steps.className='lesson-steps';
@@ -514,8 +583,9 @@ function renderLesson(){
 
   const hats=core.hits.filter(h=>h.cls==='cym');
   const hands=core.hits.filter(h=>h.cls!=='kick');
+  const H=handNames();
   const layers=[
-    ['Step 1 \u00b7 right hand', hats, 'count out loud with the click'],
+    [`Step 1 \u00b7 ${H.hat.toLowerCase()} \u2014 hi-hats`, hats, 'count out loud with the click'],
     ['Step 2 \u00b7 add the snare', hands, 'hands only \u2014 no feet yet'],
     ['Step 3 \u00b7 the full groove', core.hits, 'loop until it plays itself'],
   ];
@@ -981,8 +1051,8 @@ function hit(inst, t, vel=0.8){
   switch(inst){
     case 'kick':    tone(125,42,0.22,0.9); noise(90,0.02,0.10); break;
     case 'snare':   noise(1500,0.16,0.42,0.6); tone(196,150,0.10,0.22,'triangle'); break;
-    case 'hihat':   noise(7500,0.035,0.20); break;
-    case 'openhh':  noise(7000,0.32,0.18); break;
+    case 'hihat':   noise(6000,0.05,0.42,1.1); break;
+    case 'openhh':  noise(5500,0.32,0.34); break;
     case 'ride':    noise(6200,0.55,0.10); tone(560,540,0.28,0.06,'triangle'); break;
     case 'crash':   noise(3200,1.30,0.20); break;
     case 'tom_hi':  tone(280,190,0.30,0.55); break;
