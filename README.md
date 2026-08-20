@@ -56,7 +56,11 @@ on CPU; a full song a few minutes.
   slider, loop and click. Every card is playable: press \u25b6 to hear that
   layer looped through the built-in kit at 50-100% speed, with a count-in,
   a click, and a moving playhead \u2014 including the song's main fill and a
-  "groove \u00d73 + fill" rotation, the way fills are actually practised.
+  "groove \u00d73 + fill" rotation, the way fills are actually practised. An
+  optional coach calls each hit out loud ("kick\u2026 hat\u2026 open hat\u2026") using
+  pre-rendered words scheduled sample-accurately through WebAudio, timed to
+  land just before each stroke \u2014 speech synthesis was tried first and its
+  50-300 ms jitter made it musically unusable.
 - **Simple mode** reduces the chart to a plain kick / snare / hi-hat groove on an
   8th-note grid, with no ornaments — the version you learn first.
 - **Thin out a busy chart** with the *Detail* slider — it hides the quietest hits

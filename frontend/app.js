@@ -423,18 +423,37 @@ function barEvents(hits){
     .map(([tick,insts])=>({tick, label:limbLabel(insts), word:wordFor(insts)}));
 }
 
-function speakHit(word){
-  if(!S.sayIt || !word || !window.speechSynthesis) return;
-  // never build a backlog - a late callout is worse than a missed one
-  if(speechSynthesis.pending) return;
-  const u=new SpeechSynthesisUtterance(word);
-  u.rate=1.7; u.pitch=1.0; u.volume=1.0; u.lang='en-US';
-  speechSynthesis.speak(u);
+/* Spoken callouts are pre-rendered files scheduled through WebAudio -
+ * speechSynthesis has 50-300 ms of jitter, which is musically unusable. */
+const VOICE_WORDS=['kick','snare','hat','openhat','tom','crash','ride'];
+function loadVoices(){
+  if(S.voiceBuf || S.voiceLoading) return;
+  S.voiceLoading=true;
+  ensureCtx();
+  const buf={};
+  Promise.all(VOICE_WORDS.map(w=>
+    fetch('voice/'+w+'.ogg').then(r=>r.arrayBuffer())
+      .then(a=>S.ctx.decodeAudioData(a)).then(b=>{ buf[w]=b; })
+      .catch(()=>{})
+  )).then(()=>{ S.voiceBuf=buf; S.voiceLoading=false;
+                if(S.sayIt) sayWord('kick'); });
+}
+function sayWord(word, when){
+  const buf=S.voiceBuf && S.voiceBuf[word.replace(' ','')];
+  if(!buf) return 0;
+  ensureCtx();
+  const src=S.ctx.createBufferSource(); src.buffer=buf;
+  const g=S.ctx.createGain(); g.gain.value=1.7;
+  src.connect(g).connect(S.ctx.destination);
+  src.start(Math.max(S.ctx.currentTime, when||0));
+  if(S.lessonRun) S.lessonRun.voiceSrcs.push(src);
+  return buf.duration;
 }
 
 function stopLesson(){
   if(S.lessonTimer){ clearInterval(S.lessonTimer); S.lessonTimer=null; }
-  if(window.speechSynthesis) try{ speechSynthesis.cancel(); }catch(_){}
+  if(S.lessonRun) for(const src of S.lessonRun.voiceSrcs||[])
+    try{ src.stop(); }catch(_){}
   S.lessonRun=null;
   $$('.lesson-step.playing').forEach(e=>e.classList.remove('playing'));
   $$('.lesson-step .playhead').forEach(e=>e.style.opacity=0);
@@ -460,6 +479,7 @@ function playLesson(card, seq, pct){
   t0+=bpb*spb;
   card.classList.add('playing');
   card.querySelector('.step-play').textContent='\u25a0';
+  if(S.sayIt) loadVoices();
   seq.forEach(sq=>{ sq.events=barEvents(sq.hits); });
   const coach=card.querySelector('.coach');
   if(coach){
@@ -467,7 +487,8 @@ function playLesson(card, seq, pct){
     coach.querySelector('.coach-now').textContent='count-in\u2026';
     coach.querySelector('.coach-next').textContent='';
   }
-  const run={card, seq, t0, barLen, spb, done:0, coach, flashKey:null};
+  const run={card, seq, t0, barLen, spb, done:0, coach, flashKey:null,
+             voiceSrcs:[], voiceUntil:0};
   S.lessonRun=run;
   S.lessonTimer=setInterval(()=>{
     const ahead=S.ctx.currentTime+0.5;
@@ -478,6 +499,17 @@ function playLesson(card, seq, pct){
       for(const h of bar.hits)
         hit(h.inst, start+(h.tick/PPQ)*spb,
             h.accent ? 1.0 : Math.max(0.75, h.velocity??0.8));
+      if(S.sayIt && S.voiceBuf && bar.events){
+        for(const e of bar.events){
+          const buf=S.voiceBuf[(e.word||'').replace(' ','')];
+          if(!buf) continue;
+          const tHit=start+(e.tick/PPQ)*spb;
+          const t=tHit-Math.min(buf.duration+0.05, 0.8*spb);
+          if(t < (run.voiceUntil||0)+0.05) continue;  // drop, never drag
+          sayWord(e.word, t);
+          run.voiceUntil=t+buf.duration;
+        }
+      }
       run.done++;
     }
   }, 110);
@@ -511,7 +543,6 @@ function _coach(run, sq, barIdx, frac, box){
     if(now && sq.geo && sq.geo.noteEls){
       (sq.geo.noteEls.get(now.tick)||[]).forEach(g=>g.classList.add('hit-now'));
     }
-    if(now) speakHit(now.word);
   }
 }
 
@@ -677,7 +708,7 @@ function renderLesson(){
   sh.checked=S.sayIt;
   sh.onchange=()=>{ S.sayIt=sh.checked;
     try{ localStorage.setItem('dm-say-hits', sh.checked?'1':'0'); }catch(_){}
-    if(sh.checked) speakHit('kick'); };          // instant feedback + warms the voice up
+    if(sh.checked){ ensureCtx(); S.ctx.resume(); loadVoices(); sayWord('kick'); } };
   const hh=handRow.querySelector('#hat-hand');
   hh.value=S.hatHand;
   hh.onchange=()=>{ S.hatHand=hh.value;
