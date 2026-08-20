@@ -57,10 +57,9 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
         note(0.30, "Skipping separation")
         stem = separate.Stems(mono=mix.astype(np.float32), method="none")
     else:
+        model = opts.separation if opts.separation.startswith("htdemucs") else "htdemucs"
         stem = separate.drum_stem(src.path, out_dir, cache_dir, progress=progress,
-                                  model=("htdemucs" if opts.separation == "htdemucs"
-                                         else "htdemucs"),
-                                  render_audio=opts.render_audio)
+                                  model=model, render_audio=opts.render_audio)
         if opts.separation == "hpss":
             stem = separate.Stems(mono=separate._hpss_fallback(src.path, progress)[0].mean(0),
                                   method="hpss")

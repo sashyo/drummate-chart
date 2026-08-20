@@ -141,9 +141,11 @@ def _demucs(wav: Path, progress, model: str):
                     progress(0.15 + 0.28 * min(1.0, state["n"] / (chunks * 2)),
                              "Separating drums from the mix")
 
+    # the fine-tuned bag is the quality path - give it the better overlap too
+    overlap = 0.25 if model.endswith("_ft") else 0.15
     with torch.no_grad():
         sources = apply_model(net, audio_n[None], device="cpu", split=True,
-                              overlap=0.15, progress=False, callback=_Cb())[0]
+                              overlap=overlap, progress=False, callback=_Cb())[0]
     sources = sources * std + mean
 
     di = net.sources.index("drums")
