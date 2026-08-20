@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import threading
+import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -46,12 +47,26 @@ class Job:
     message: str = "Queued"
     error: str | None = None
     title: str | None = None
+    created: float = field(default_factory=time.time)
     score: dict | None = field(default=None, repr=False)
 
     def public(self) -> dict:
         d = asdict(self)
         d.pop("score", None)
         d["hasScore"] = self.score is not None
+        if self.status == "queued":
+            # one worker: say what we're actually waiting for
+            ahead = [j for j in _jobs.values()
+                     if j.id != self.id and j.status == "running"
+                     or (j.status == "queued" and j.created < self.created)]
+            running = next((j for j in ahead if j.status == "running"), None)
+            n = len(ahead)
+            if n == 0:
+                d["message"] = "Queued \u2014 starting momentarily"
+            else:
+                what = f' ("{running.title or "another song"}" is processing)' if running else ""
+                d["message"] = (f"Queued behind {n} job{'s' if n > 1 else ''}{what} "
+                                "\u2014 one transcription runs at a time")
         return d
 
 
@@ -106,6 +121,7 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
     try:
         with _lock:
             job.status, job.message = "running", "Starting"
+            job.title = title or url
         doc = transcribe(url, out, CACHE_DIR, opts, progress=progress,
                          local_file=local, title=title)
         with _lock:
