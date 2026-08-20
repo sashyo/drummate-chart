@@ -44,6 +44,7 @@ const S = {
   loopFrom:null, loopTo:null,
   editing:false, brush:'snare', detail:90, simple:false, teach:false,
   hatHand:(typeof localStorage!=='undefined' && localStorage.getItem('dm-hats-hand'))||'right',
+  sayIt:(typeof localStorage!=='undefined' && localStorage.getItem('dm-say-hits'))==='1',
   cursorBar:-1, systems:[], yt:null, ytReady:false,
   ctx:null, scheduled:[], schedTimer:null, playFrom:0, playStarted:0,
 };
@@ -372,25 +373,78 @@ function renderBarInto(el, hits, width, withCounts, subdivision=2){
   el.appendChild(ph);
   // where each tick actually sits on the engraved stave - the formatter does
   // NOT space time linearly, so the playhead must follow the real noteheads
-  const mm=new Map();
+  const mm=new Map(), noteEls=new Map();
   for(const n of drawn){
     if(n.el.type!=='note' || n.el.tick==null) continue;
     try{
       const x=n.vf.getAbsoluteX();
       if(!mm.has(n.el.tick) || x<mm.get(n.el.tick)) mm.set(n.el.tick, x);
+      const g=n.vf.getSVGElement && n.vf.getSVGElement();
+      if(g){
+        if(!noteEls.has(n.el.tick)) noteEls.set(n.el.tick, []);
+        noteEls.get(n.el.tick).push(g);
+      }
     }catch(_){}
   }
   const marks=[...mm.entries()].map(([tick,x])=>({tick,x})).sort((a,b)=>a.tick-b.tick);
-  return {x0:stave.getNoteStartX(), x1:width-12, marks};
+  return {x0:stave.getNoteStartX(), x1:width-12, marks, noteEls};
 }
 
 /* ── lesson playback: loop any card through the synth kit ─────────────── */
+function limbLabel(insts){
+  const H=handNames();
+  const hat=H.hat.split(' ')[0].toUpperCase(), sn=H.snare.split(' ')[0].toUpperCase();
+  const parts=[];
+  const has=i=>insts.includes(i);
+  if(has('crash')) parts.push(hat+' \u00b7 crash');
+  else if(has('ride')) parts.push(hat+' \u00b7 ride');
+  else if(has('openhh')) parts.push(hat+' \u00b7 open hat');
+  else if(has('hihat')) parts.push(hat+' \u00b7 hat');
+  if(has('snare')) parts.push(sn+' \u00b7 snare');
+  if(insts.some(i=>i.startsWith('tom_'))) parts.push('HANDS \u00b7 tom');
+  if(has('kick')||has('hhfoot')) parts.push('FOOT \u00b7 kick');
+  return parts.join('   +   ');
+}
+
+function barEvents(hits){
+  const by=new Map();
+  for(const h of hits){
+    if(!by.has(h.tick)) by.set(h.tick, []);
+    by.get(h.tick).push(h.inst);
+  }
+  const SPOKEN=[['crash','crash'],['tom_','tom'],['openhh','open hat'],
+                ['snare','snare'],['kick','kick'],['ride','ride'],['hihat','hat']];
+  const wordFor=insts=>{
+    for(const [k,w] of SPOKEN)
+      if(insts.some(i=>i===k||i.startsWith(k))) return w;
+    return '';
+  };
+  return [...by.entries()].sort((a,b)=>a[0]-b[0])
+    .map(([tick,insts])=>({tick, label:limbLabel(insts), word:wordFor(insts)}));
+}
+
+function speakHit(word){
+  if(!S.sayIt || !word || !window.speechSynthesis) return;
+  // never build a backlog - a late callout is worse than a missed one
+  if(speechSynthesis.pending) return;
+  const u=new SpeechSynthesisUtterance(word);
+  u.rate=1.7; u.pitch=1.0; u.volume=1.0; u.lang='en-US';
+  speechSynthesis.speak(u);
+}
+
 function stopLesson(){
   if(S.lessonTimer){ clearInterval(S.lessonTimer); S.lessonTimer=null; }
+  if(window.speechSynthesis) try{ speechSynthesis.cancel(); }catch(_){}
   S.lessonRun=null;
   $$('.lesson-step.playing').forEach(e=>e.classList.remove('playing'));
   $$('.lesson-step .playhead').forEach(e=>e.style.opacity=0);
   $$('.step-play').forEach(b=>b.textContent='\u25b6');
+  $$('.coach').forEach(e=>{
+    e.querySelector('.coach-count').textContent='\u2014';
+    e.querySelector('.coach-now').textContent='';
+    e.querySelector('.coach-next').textContent='';
+  });
+  $$('.hit-now').forEach(e=>e.classList.remove('hit-now'));
 }
 
 function playLesson(card, seq, pct){
@@ -406,7 +460,14 @@ function playLesson(card, seq, pct){
   t0+=bpb*spb;
   card.classList.add('playing');
   card.querySelector('.step-play').textContent='\u25a0';
-  const run={card, seq, t0, barLen, spb, done:0};
+  seq.forEach(sq=>{ sq.events=barEvents(sq.hits); });
+  const coach=card.querySelector('.coach');
+  if(coach){
+    coach.querySelector('.coach-count').textContent='\u2026';
+    coach.querySelector('.coach-now').textContent='count-in\u2026';
+    coach.querySelector('.coach-next').textContent='';
+  }
+  const run={card, seq, t0, barLen, spb, done:0, coach, flashKey:null};
   S.lessonRun=run;
   S.lessonTimer=setInterval(()=>{
     const ahead=S.ctx.currentTime+0.5;
@@ -422,6 +483,38 @@ function playLesson(card, seq, pct){
   }, 110);
 }
 
+function _coach(run, sq, barIdx, frac, box){
+  if(!run.coach || !sq.events) return;
+  const tpb=S.score.ticksPerBar;
+  const tickNow=frac*tpb;
+  const ev=sq.events;
+  // the hit that just fired (or is firing), and the one to prepare for
+  let now=null, next=null;
+  for(const e of ev){
+    if(e.tick<=tickNow+2) now=e;
+    else if(!next) next=e;
+  }
+  if(!next){
+    const nsq=run.seq[(barIdx+1)%run.seq.length];
+    if(nsq && nsq.events && nsq.events.length) next=nsq.events[0];
+  }
+  run.coach.querySelector('.coach-count').textContent=
+    countLabel(Math.round(tickNow/(PPQ/2))*(PPQ/2)%tpb);
+  run.coach.querySelector('.coach-now').textContent= now ? now.label : '';
+  run.coach.querySelector('.coach-next').textContent=
+    next ? `next \u2014 ${next.label.toLowerCase()}  (on ${beatName(next.tick)})` : '';
+  // flash the engraved notes as they sound
+  const key=barIdx+':'+(now?now.tick:'-');
+  if(key!==run.flashKey){
+    run.flashKey=key;
+    $$('.hit-now').forEach(e=>e.classList.remove('hit-now'));
+    if(now && sq.geo && sq.geo.noteEls){
+      (sq.geo.noteEls.get(now.tick)||[]).forEach(g=>g.classList.add('hit-now'));
+    }
+    if(now) speakHit(now.word);
+  }
+}
+
 function lessonPlayhead(){
   const run=S.lessonRun;
   if(!run || !S.ctx) return;
@@ -435,6 +528,7 @@ function lessonPlayhead(){
   const frac=(elapsed%run.barLen)/run.barLen;
   const sq=run.seq[Math.min(barIdx, run.seq.length-1)];
   const box=boxes[Math.min(sq.box??barIdx, boxes.length-1)];
+  _coach(run, sq, barIdx, (elapsed%run.barLen)/run.barLen, box);
   const geo=sq.geo||{x0:30,x1:300};
   const ph=box.querySelector('.playhead');
   if(!ph) return;
@@ -521,7 +615,8 @@ function addStepCard(container, name, hint, displayBars, seq, opts={}){
   step.appendChild(nm);
   const row=document.createElement('div'); row.className='step-bars';
   step.appendChild(row);
-  try{
+  container.appendChild(step);      // must be in the DOM before VexFlow draws:
+  try{                              // getSVGElement resolves via getElementById
     displayBars.forEach((d,i)=>{
       const box=document.createElement('div');
       if(d.tag){
@@ -544,10 +639,15 @@ function addStepCard(container, name, hint, displayBars, seq, opts={}){
   }
   ctl.append(play, sel);
   const ht=document.createElement('div'); ht.className='step-hint'; ht.textContent=hint;
-  step.append(ctl, ht);
+  const coach=document.createElement('div');
+  coach.className='coach';
+  coach.innerHTML='<div class="coach-count">\u2014</div>'+
+    '<div class="coach-now"></div><div class="coach-next"></div>';
+  step.append(ctl, ht, coach);
+  const wsum=displayBars.reduce((a,d)=>a+(d.width||330),0)+8*(displayBars.length-1);
+  step.style.width=(wsum+24)+'px';
   play.onclick=()=>playLesson(step, seq, Number(sel.value));
   sel.onchange=()=>{ if(S.lessonRun && S.lessonRun.card===step) playLesson(step, seq, Number(sel.value)); };
-  container.appendChild(step);
 }
 
 function renderLesson(){
@@ -569,8 +669,15 @@ function renderLesson(){
   handRow.className='hand-pick';
   handRow.innerHTML=`hi-hats with: <select id="hat-hand">
     <option value="right">right hand (crossed \u2014 standard)</option>
-    <option value="left">left hand (open-handed)</option></select>`;
+    <option value="left">left hand (open-handed)</option></select>
+    <label class="check say-check"><input id="say-hits" type="checkbox">
+      \ud83d\udd0a call the hits out loud</label>`;
   host.append(h3, cov, handRow);
+  const sh=handRow.querySelector('#say-hits');
+  sh.checked=S.sayIt;
+  sh.onchange=()=>{ S.sayIt=sh.checked;
+    try{ localStorage.setItem('dm-say-hits', sh.checked?'1':'0'); }catch(_){}
+    if(sh.checked) speakHit('kick'); };          // instant feedback + warms the voice up
   const hh=handRow.querySelector('#hat-hand');
   hh.value=S.hatHand;
   hh.onchange=()=>{ S.hatHand=hh.value;
