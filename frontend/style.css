@@ -271,6 +271,7 @@ svg .hit-now, .hit-now *{fill:#ff2e88 !important; stroke:#ff2e88 !important}
 button,.seg,.ghost{touch-action:manipulation; -webkit-tap-highlight-color:transparent}
 #btn-loop.armed{background:var(--yellow); color:#000; border-color:var(--yellow)}
 .loop-box{background:rgba(255,230,0,.22); border-top:3px solid var(--yellow); border-bottom:3px solid var(--yellow)}
+.chart-ph{position:absolute; width:2px; background:var(--pink); opacity:0; pointer-events:none; z-index:5}
 .system svg{display:block; margin:0 auto}
 .footnote{margin-top:16px; font-family:var(--f-mono); font-size:.8rem}
 .footnote b{color:var(--yellow)}

@@ -1093,7 +1093,14 @@ function position(){
     return S.yt&&S.ytReady ? Math.max(0,S.yt.getCurrentTime()-S.score.offset) : 0;
   if(S.source==='click')
     return S.playing ? S.playFrom+(S.ctx.currentTime-S.playStarted)*S.speed : S.playFrom;
-  return $('#audio').currentTime;
+  const a=$('#audio');
+  const ct=a.currentTime;
+  /* Safari/iPad only refresh currentTime every ~250 ms - interpolate between
+     updates or the cursor trails the sound by up to half a bar. */
+  const now=performance.now();
+  if(!S.playing || a.paused){ S._ctBase=ct; S._ctPerf=now; return ct; }
+  if(ct!==S._ctBase){ S._ctBase=ct; S._ctPerf=now; return ct; }
+  return ct + Math.min(0.35, (now-(S._ctPerf||now))/1000) * (a.playbackRate||1);
 }
 function seek(t){
   t=clamp(t,0,Math.max(0,duration()));
@@ -1105,6 +1112,7 @@ function seek(t){
 }
 function play(){
   stopLesson();
+  if(S.source!=='click' && $('#opt-hear')&&$('#opt-hear').checked){ ensureCtx(); S.ctx.resume(); resetSched(position()); }
   if(S.source==='youtube'){ if(S.yt&&S.ytReady) S.yt.playVideo(); }
   else if(S.source==='click'){
     ensureCtx(); S.ctx.resume();
@@ -1238,7 +1246,7 @@ function pump(pos){
   const c=S.ctx; if(!c) return;
   const AHEAD=0.35;
   const toCtx=(t)=>c.currentTime+(t-pos)/S.speed;
-  if(S.source==='click'){
+  if(S.source==='click' || ($('#opt-hear')&&$('#opt-hear').checked)){
     const hits=flatHits();
     while(S.synthIdx<hits.length && hits[S.synthIdx].t < pos+AHEAD*S.speed){
       const h=hits[S.synthIdx++];
@@ -1324,6 +1332,26 @@ function tick(){
   }
   const idx=barAt(pos);
   if(idx!==S.cursorBar){ S.cursorBar=idx; applyCursor(true); }
+  chartPlayhead(pos, idx);
+}
+
+function chartPlayhead(pos, idx){
+  const bar=S.score && S.score.bars[idx];
+  for(const sys of S.systems){
+    let line=sys.el.querySelector('.chart-ph');
+    const g=bar && sys.bars.find(b2=>b2.bar.number===bar.number);
+    if(!g){ if(line) line.style.opacity=0; continue; }
+    if(!line){
+      line=document.createElement('div');
+      line.className='chart-ph';
+      sys.el.appendChild(line);
+    }
+    const frac=Math.max(0, Math.min(1, (pos-bar.startTime)/Math.max(1e-6, bar.endTime-bar.startTime)));
+    line.style.opacity=S.playing?1:0;
+    line.style.left=(g.noteX0 + frac*(g.noteX1-g.noteX0))+'px';
+    line.style.top=(g.y+4)+'px';
+    line.style.height=(g.h+8)+'px';
+  }
 }
 
 /* ── editing ──────────────────────────────────────────────────────────── */
@@ -1481,6 +1509,7 @@ function init(){
   });
   on('#opt-key','change', ()=>{ if(S.score) renderScore(); });
   on('#opt-met','change', ()=>{ ensureCtx(); S.metIdx=0; resetSched(position()); });
+  on('#opt-hear','change', ()=>{ ensureCtx(); S.ctx.resume(); resetSched(position()); });
 
   document.addEventListener('keydown', e=>{
     if(e.target.matches('input,select,textarea')) return;
