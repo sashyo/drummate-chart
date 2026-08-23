@@ -8,6 +8,8 @@ from pathlib import Path
 
 from . import exports, fetch, onsets, quantize, rhythm, score, separate
 
+ENGINE = 3   # bump when the grid/detector changes enough that old charts should be re-run
+
 
 @dataclass
 class Options:
@@ -113,6 +115,7 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
         "videoId": src.video_id,
         "separation": stem.method,
         "detector": det.debug.get("detector", "spectral"),
+        "engine": ENGINE,
         "offset": opts.start or 0.0,
         "audio": audio_files,
         "stats": {

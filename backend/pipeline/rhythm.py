@@ -161,12 +161,15 @@ def _best_octave(hits, period: float, bpb: int) -> float:
     if len(anchors) < 16 or bpb != 4:
         return period
 
-    def judge(T):
-        best_ph, best_sc = 0.0, -1.0
-        for ph in np.linspace(0, T, 48, endpoint=False):
-            sc = _align_score(anchors, T, ph)
-            if sc > best_sc:
-                best_sc, best_ph = sc, ph
+    def judge(T0):
+        # refine the candidate's period first: a 0.3% error drifts two
+        # beats across a song and unfairly smears the finer tempo
+        best_ph, best_sc, T = 0.0, -1.0, T0
+        for TT in np.linspace(T0 * 0.98, T0 * 1.02, 21):
+            for ph in np.linspace(0, TT, 48, endpoint=False):
+                sc = _align_score(anchors, TT, ph)
+                if sc > best_sc:
+                    best_sc, best_ph, T = sc, ph, TT
         pos = (anchors - best_ph) / T
         on = np.abs(pos - np.round(pos)) < 0.15
         on_grid = float(on.mean())

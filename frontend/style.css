@@ -167,6 +167,7 @@ input[type=range]{accent-color:var(--pink); width:100%}
 .pill{background:transparent; border:var(--border-w2); color:var(--white);
   padding:2px 10px; font-family:var(--f-mono); font-size:.75rem}
 .pill-muted{color:var(--muted); border-color:var(--line)}
+.pill.stale{background:var(--red); border-color:var(--red); color:#fff}
 .pill-link{text-decoration:none}
 .pill-link:hover{background:var(--pink); border-color:var(--pink); color:#fff}
 .downloads{display:flex; gap:8px}

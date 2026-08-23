@@ -5,6 +5,8 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
+const APP_BUILD='2026-08-23d';
+const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
 const $ = (s) => document.querySelector(s);
@@ -765,6 +767,7 @@ function openScore(score){
   $('#s-title').textContent=score.title;
   $('#s-tempo').textContent=`♩ = ${Math.round(score.tempo)}`;
   $('#s-meter').textContent=score.timeSignature;
+  $('#s-stale')?.classList.toggle('hidden', (score.engine||1) >= ENGINE_CURRENT);
   $('#s-swing').textContent = score.swing ? 'Swing 8ths' : 'Straight';
   $('#s-kit').textContent = (score.kit||[]).map(i=>DRUMS[i]?.label||i).join(' \u00b7 ');
   const src=$('#s-source');
@@ -1476,6 +1479,7 @@ function init(){
     clearTimeout(rt); rt=setTimeout(()=>{ if(S.score) renderScore(); }, 200);
   });
 
+  if($('#build')) $('#build').textContent='build '+APP_BUILD;
   api('/api/health').then(h=>{
     const p=$('#engine');
     p.textContent = h.demucs ? (h.drumsep ? 'Demucs + kit split ready' : 'Demucs separation ready')

@@ -94,6 +94,7 @@ def build(q: QScore, meta: dict) -> dict:
         "stats": meta.get("stats", {}),
         "separation": meta.get("separation"),
         "detector": meta.get("detector", "spectral"),
+        "engine": meta.get("engine", 1),
         "audio": meta.get("audio", {}),
         "offset": round(meta.get("offset", 0.0), 4),
     }
