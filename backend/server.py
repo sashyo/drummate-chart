@@ -222,6 +222,30 @@ def reexport(job_id: str, req: ReexportRequest):
     return {"ok": True, "bars": len(new_doc["bars"])}
 
 
+class RegridRequest(BaseModel):
+    tempo: float = Field(ge=30, le=300)
+    beatsPerBar: int | None = Field(default=None, ge=2, le=12)
+
+
+@app.post("/api/jobs/{job_id}/regrid")
+def regrid(job_id: str, req: RegridRequest):
+    """Re-spell the chart at a different tempo / feel without re-analysing."""
+    from .pipeline.rebuild import regrid as _regrid
+
+    out = JOBS_DIR / job_id
+    job = _jobs.get(job_id)
+    doc = job.score if job and job.score else None
+    if doc is None:
+        path = out / "score.json"
+        if not path.exists():
+            raise HTTPException(404, "No such job")
+        doc = json.loads(path.read_text())
+    new_doc = _regrid(doc, req.tempo, out, req.beatsPerBar)
+    if job is not None:
+        job.score = new_doc
+    return JSONResponse(new_doc)
+
+
 @app.get("/api/jobs/{job_id}/clonehero")
 def clonehero(job_id: str):
     """Build (or reuse) a Clone Hero song package for this transcription."""

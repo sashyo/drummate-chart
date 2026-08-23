@@ -169,6 +169,9 @@ input[type=range]{accent-color:var(--pink); width:100%}
 .pill-muted{color:var(--muted); border-color:var(--line)}
 .pill.stale{background:var(--red); border-color:var(--red); color:#fff}
 .pill-link{text-decoration:none}
+.tempo-pill{display:inline-flex; align-items:center; gap:5px; padding-right:4px}
+.tempo-pill .tiny{padding:0 6px; font-size:.7rem; box-shadow:none; border-width:2px; line-height:1.4}
+.tempo-pill input{width:4.6em; padding:1px 4px; font-size:.7rem; border-width:2px; background:#fff}
 .pill-link:hover{background:var(--pink); border-color:var(--pink); color:#fff}
 .downloads{display:flex; gap:8px}
 

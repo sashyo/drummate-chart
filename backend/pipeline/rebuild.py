@@ -61,3 +61,34 @@ def reexport(doc: dict, edited_bars: list[dict], out_dir: Path) -> dict:
     import json
     (out_dir / "score.json").write_text(json.dumps(new_doc, indent=1))
     return new_doc
+
+
+def regrid(doc: dict, tempo: float, out_dir: Path, beats_per_bar: int | None = None) -> dict:
+    """Re-spell the same hits on a grid locked to `tempo` (e.g. half-time).
+
+    Hits keep their detected times; only the grid, bar lines and notation
+    change. Seconds, not minutes - no audio is touched.
+    """
+    import json
+    from .onsets import Hit
+    from . import rhythm, quantize, score as SC, exports
+
+    bpb = int(beats_per_bar or doc.get("beatsPerBar", 4))
+    hits = [Hit(time=float(h["time"]), inst=h["inst"], velocity=float(h.get("velocity", 0.8)),
+                ghost=bool(h.get("ghost")), accent=bool(h.get("accent")))
+            for b in doc["bars"] for h in b["hits"]]
+    hits.sort(key=lambda h: h.time)
+    duration = float(doc.get("stats", {}).get("duration", hits[-1].time + 2 if hits else 10))
+    grid = rhythm.grid_from_drums(hits, duration, bpb, fixed_tempo=float(tempo))
+    if grid is None:
+        raise ValueError("not enough hits to build a grid")
+    grid = rhythm.refine_with_hits(grid, hits)
+    q = quantize.quantize(hits, grid)
+    meta = {k: doc.get(k) for k in ("title", "source", "videoId", "separation", "detector", "engine", "offset", "audio")}
+    meta["stats"] = dict(doc.get("stats", {}), bars=len(q.bars))
+    new_doc = SC.build(q, meta)
+    new_doc["downloads"] = doc.get("downloads", {})
+    exports.write_midi(new_doc, q, out_dir / "drums.mid")
+    exports.write_musicxml(new_doc, out_dir / "drums.musicxml")
+    (out_dir / "score.json").write_text(json.dumps(new_doc, indent=1))
+    return new_doc

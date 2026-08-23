@@ -766,6 +766,7 @@ function openScore(score){
   S.cursorBar=-1; S.loopFrom=S.loopTo=null; updateLoopLabel();
   $('#s-title').textContent=score.title;
   $('#s-tempo').textContent=`♩ = ${Math.round(score.tempo)}`;
+  if($('#tempo-in')) $('#tempo-in').value=score.tempo.toFixed(1);
   $('#s-meter').textContent=score.timeSignature;
   $('#s-stale')?.classList.toggle('hidden', (score.engine||1) >= ENGINE_CURRENT);
   $('#s-swing').textContent = score.swing ? 'Swing 8ths' : 'Straight';
@@ -1438,6 +1439,20 @@ function init(){
   $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; S.loopPick=0; updateLoopLabel(); drawLoopRange(); };
   on('#btn-loop','click', ()=>{ S.loopPick = S.loopPick ? 0 : 1; updateLoopLabel(); });
   $('#btn-print').onclick=()=>window.print();
+  const regrid=async(t)=>{
+    if(!S.score||!S.jobId) return;
+    const lbl=$('#s-tempo'); const old=lbl.textContent; lbl.textContent='re-spelling…';
+    try{
+      const doc=await api(`/api/jobs/${S.jobId}/regrid`,{method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({tempo:t})});
+      const at=position(); pause();
+      openScore(doc); seek(at);
+    }catch(e){ lbl.textContent=old; alert('Could not re-spell: '+e.message); }
+  };
+  on('#btn-half','click', ()=>regrid(S.score.tempo/2));
+  on('#btn-double','click', ()=>regrid(S.score.tempo*2));
+  on('#btn-regrid','click', ()=>regrid(Number($('#tempo-in').value)));
+  on('#tempo-in','keydown', e=>{ if(e.key==='Enter') regrid(Number(e.target.value)); });
   $$('.seg').forEach(b=>b.onclick=()=>selectSource(b.dataset.src));
   on('#opt-edit','change', e=>{
     S.editing=e.target.checked;

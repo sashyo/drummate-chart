@@ -119,7 +119,12 @@
     <div>
       <h2 id="s-title">—</h2>
       <div class="badges">
-        <span class="pill" id="s-tempo"></span>
+        <span class="pill tempo-pill"><span id="s-tempo"></span>
+          <button id="btn-half" class="tiny" title="Re-spell in half time">½×</button>
+          <button id="btn-double" class="tiny" title="Re-spell in double time">2×</button>
+          <input id="tempo-in" type="number" min="30" max="300" step="0.1" title="Set the tempo the chart is written at">
+          <button id="btn-regrid" class="tiny">set</button>
+        </span>
         <span class="pill" id="s-meter"></span>
         <span class="pill" id="s-swing"></span>
         <span class="pill pill-muted" id="s-kit"></span>

@@ -240,36 +240,41 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
                 best = (sc, T, ph)
     _, T, ph = best
 
-    # 3. slow drift: local phase offset per window, unwrapped and interpolated
+    # 3. slow drift: local phase offset per window, unwrapped and interpolated.
+    # Windows are a fixed 12 s (not N beats) so a fast tempo doesn't get
+    # short, jumpy windows; each step is capped at 0.12 beat so the phase
+    # can follow a drummer but can never creep onto the off-beat. The
+    # drifted grid is only kept when it is DECISIVELY better than the
+    # constant one - click-steady tracks get a rigid grid.
     n_beats = int(np.ceil(duration / T)) + 2
     k = np.arange(n_beats)
     base = ph + k * T
-    win = 16 * T
+    win = 12.0
     centers = np.arange(win / 2, duration, win / 2)
     offs, ts = [], []
     prev = 0.0
     for c in centers:
         sel = anchors[(anchors >= c - win / 2) & (anchors < c + win / 2)]
-        if len(sel) < 6:
+        if len(sel) < 8:
             continue
         frac = ((sel - ph) / T) % 1.0
-        cands = np.linspace(-0.5, 0.5, 64, endpoint=False)
+        cands = np.linspace(-0.3, 0.3, 61)
         scores = [np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2).sum()
                   for d in cands]
         d = float(cands[int(np.argmax(scores))])
-        # keep continuity with the previous window (no half-beat jumps)
-        while d - prev > 0.5:
-            d -= 1.0
-        while d - prev < -0.5:
-            d += 1.0
-        if abs(d - prev) > 0.35:
-            d = prev
+        d = prev + float(np.clip(d - prev, -0.12, 0.12))
         offs.append(d); ts.append(c); prev = d
+    beat_times = base
     if ts:
         delta = np.interp(base, ts, offs)
-        beat_times = base + delta * T
-    else:
-        beat_times = base
+        drifted = base + delta * T
+        # score both grids on the anchors; keep drift only if it clearly wins
+        def grid_score(bt):
+            idx = np.interp(anchors, bt, np.arange(len(bt)))
+            dd = np.abs(idx - np.round(idx))
+            return float(np.exp(-(dd / 0.09) ** 2).sum())
+        if grid_score(drifted) > 1.06 * grid_score(base):
+            beat_times = drifted
     beat_times = beat_times[beat_times >= 0]
     if beat_times[0] > T:
         beat_times = np.concatenate([np.arange(beat_times[0] - T, -1e-9, -T)[::-1], beat_times])
