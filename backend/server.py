@@ -129,15 +129,63 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
             job.score = doc
             job.title = doc.get("title")
             job.status, job.progress, job.message = "done", 1.0, "Done"
+        _mark(job.id, "done")
     except FetchError as exc:
+        _mark(job.id, "error")
         with _lock:
             job.status, job.error, job.message = "error", str(exc), "Failed"
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
+        _mark(job.id, "error")
         with _lock:
             job.status = "error"
             job.error = f"{type(exc).__name__}: {exc}"
             job.message = "Failed"
+
+
+def _mark(job_id: str, state: str) -> None:
+    p = JOBS_DIR / job_id / "job.json"
+    if p.exists():
+        try:
+            m = json.loads(p.read_text()); m["state"] = state; p.write_text(json.dumps(m))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+@app.on_event("startup")
+def _resume_unfinished():
+    """Re-queue jobs that were running or queued when the server last stopped.
+
+    Same ids, so a browser still polling them simply sees them finish. The
+    download / separation caches make the re-run far cheaper than the first.
+    """
+    for p in sorted(JOBS_DIR.glob("*/job.json"), key=lambda x: x.stat().st_mtime):
+        try:
+            m = json.loads(p.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        if m.get("state") in ("done", "error") or (p.parent / "score.json").exists():
+            continue
+        if time.time() - m.get("created", 0) > 6 * 3600:
+            continue                                   # stale; don't surprise anyone
+        req = TranscribeRequest(**m.get("options", {}))
+        local = Path(m["local"]) if m.get("local") else None
+        if local and not local.exists():
+            continue
+        job = Job(id=m["id"], message="Re-queued after a server restart")
+        _jobs[job.id] = job
+        _pool.submit(_run, job, m.get("url"), _opts(req), local, m.get("title"))
+        print(f"resumed job {job.id}: {m.get('url') or m.get('title')}")
+
+
+def _manifest(job_id: str, req: TranscribeRequest, url: str | None,
+              local: Path | None, title: str | None) -> None:
+    """Persist enough to re-queue this job if the server restarts mid-way."""
+    d = JOBS_DIR / job_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "job.json").write_text(json.dumps({
+        "id": job_id, "url": url, "local": str(local) if local else None,
+        "title": title, "options": req.model_dump(), "created": time.time()}))
 
 
 @app.post("/api/transcribe")
@@ -146,6 +194,7 @@ def start(req: TranscribeRequest):
         raise HTTPException(400, "Paste a link first.")
     job = Job(id=uuid.uuid4().hex[:12])
     _jobs[job.id] = job
+    _manifest(job.id, req, req.url.strip(), None, None)
     _pool.submit(_run, job, req.url.strip(), _opts(req), None, None)
     return {"jobId": job.id}
 
@@ -158,7 +207,9 @@ async def upload(file: UploadFile = File(...), options: str = Form("{}")):
     dest = CACHE_DIR / f"upload_{job.id}_{Path(file.filename or 'audio').name}"
     with dest.open("wb") as fh:
         shutil.copyfileobj(file.file, fh)
-    _pool.submit(_run, job, None, _opts(req), dest, Path(file.filename or "Upload").stem)
+    title = Path(file.filename or "Upload").stem
+    _manifest(job.id, req, None, dest, title)
+    _pool.submit(_run, job, None, _opts(req), dest, title)
     return {"jobId": job.id}
 
 
