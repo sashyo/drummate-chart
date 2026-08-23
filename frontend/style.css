@@ -263,6 +263,8 @@ svg .hit-now, .hit-now *{fill:#ff2e88 !important; stroke:#ff2e88 !important}
 .score{background:var(--paper); border:var(--border); box-shadow:var(--shadow);
   padding:16px 8px 24px; overflow-x:auto; color:var(--ink)}
 .system{position:relative; margin-bottom:6px}
+.score{user-select:none; -webkit-user-select:none}
+.loop-box{background:rgba(255,230,0,.22); border-top:3px solid var(--yellow); border-bottom:3px solid var(--yellow)}
 .system svg{display:block; margin:0 auto}
 .footnote{margin-top:16px; font-family:var(--f-mono); font-size:.8rem}
 .footnote b{color:var(--yellow)}

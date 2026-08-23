@@ -940,6 +940,7 @@ function renderScore(){
     drawSystem(div, row, width, i===0);
   });
   applyCursor(false);
+  drawLoopRange();
   $('#bar-count').textContent=`${priced.length} bars`;
 }
 
@@ -1280,6 +1281,22 @@ function applyCursor(force){
     }
   }
 }
+function drawLoopRange(){
+  $$('.loop-box').forEach(e=>e.remove());
+  if(S.loopFrom==null) return;
+  const a=S.score.bars[S.loopFrom]?.number, b=S.score.bars[S.loopTo??S.loopFrom]?.number;
+  for(const sys of S.systems){
+    for(const g of sys.bars){
+      if(g.bar.number<a || g.bar.number>b) continue;
+      const box=document.createElement('div');
+      box.className='loop-box';
+      Object.assign(box.style,{position:'absolute', pointerEvents:'none',
+        left:g.x+'px', top:(g.y-2)+'px', width:g.w+'px', height:(g.h+18)+'px'});
+      sys.el.appendChild(box);
+    }
+  }
+}
+
 function updateLoopLabel(){
   const l=$('#loop-label');
   if(S.loopFrom==null){ l.textContent='Loop: off'; return; }
@@ -1319,13 +1336,21 @@ function onSystemClick(ev, div, geo){
   const x=ev.clientX-rect.left;
   const g=geo.find(b=>x>=b.x && x<b.x+b.w) || geo[geo.length-1];
   if(!g) return;
-  const barIdx=S.score.bars.indexOf(g.bar);
+  // the drawn bar may be a Detail/Simple copy - loop and edit on the original
+  const barIdx=S.score.bars.indexOf(g.bar._orig || g.bar);
+  if(barIdx<0) return;
 
   if(!S.editing){
-    if(ev.shiftKey && S.loopFrom!=null) S.loopTo=Math.max(S.loopFrom, barIdx);
-    else { S.loopFrom=barIdx; S.loopTo=barIdx; }
+    if((ev.shiftKey || ev.ctrlKey || ev.metaKey) && S.loopFrom!=null){
+      ev.preventDefault();
+      if(barIdx < S.loopFrom){ S.loopTo=S.loopFrom; S.loopFrom=barIdx; }   // extend backwards too
+      else S.loopTo=barIdx;
+    } else {
+      S.loopFrom=barIdx; S.loopTo=barIdx;
+      seek(g.bar.startTime);
+    }
     updateLoopLabel();
-    if(!ev.shiftKey) seek(g.bar.startTime);
+    drawLoopRange();
     return;
   }
 
@@ -1395,7 +1420,7 @@ function init(){
     $('#clock').textContent='audio failed to load \u2014 press play to retry';
   });
   $('#speed').addEventListener('input', e=>setSpeed(Number(e.target.value)));
-  $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; updateLoopLabel(); };
+  $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; updateLoopLabel(); drawLoopRange(); };
   $('#btn-print').onclick=()=>window.print();
   $$('.seg').forEach(b=>b.onclick=()=>selectSource(b.dataset.src));
   on('#opt-edit','change', e=>{
