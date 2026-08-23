@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-23d';
+const APP_BUILD='2026-08-24a';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -25,6 +25,7 @@ const DRUMS = {
   tom_low: {label:'Floor tom',   key:'a/4',    midi:41, voice:'up',   order:6, short:'FT'},
   kick:    {label:'Bass drum',   key:'f/4',    midi:36, voice:'down', order:7, short:'BD'},
   hhfoot:  {label:'Hi-hat foot', key:'d/4/x2', midi:44, voice:'down', order:8, short:'HHf'},
+  perc:    {label:'Perc / rim',  key:'b/5/d',  midi:37, voice:'up',   order:9, short:'Pc'},
 };
 const INSTS = Object.keys(DRUMS).sort((a,b)=>DRUMS[a].order-DRUMS[b].order);
 
@@ -44,7 +45,7 @@ const S = {
   jobId:null, score:null, poll:null,
   source:'drums', playing:false, speed:1,
   loopFrom:null, loopTo:null, loopPick:0,
-  editing:false, brush:'snare', detail:90, simple:false, teach:false,
+  editing:false, brush:'snare', detail:100, simple:false, teach:false,
   hatHand:(typeof localStorage!=='undefined' && localStorage.getItem('dm-hats-hand'))||'right',
   sayIt:(typeof localStorage!=='undefined' && localStorage.getItem('dm-say-hits'))==='1',
   cursorBar:-1, systems:[], yt:null, ytReady:false,
@@ -249,7 +250,7 @@ function watch(jobId){
 
 
 /* ── teach mode: find the groove, layer it, explain it ────────────────── */
-const CLASS_MAP={openhh:'cym', ride:'cym', hihat:'cym', crash:'cym',
+const CLASS_MAP={openhh:'cym', ride:'cym', hihat:'cym', crash:'cym', perc:'perc',
                  tom_hi:'tom', tom_mid:'tom', tom_low:'tom',
                  kick:'kick', snare:'snare', hhfoot:'kick'};
 
@@ -813,6 +814,7 @@ function detailThresholds(){
 /* The bars actually drawn: at full detail the originals, otherwise shallow
  * copies with hits hidden or simplified. `_orig` keeps edits pointing home. */
 const SIMPLE_MAP={openhh:'hihat', ride:'hihat', tom_hi:'tom_mid', tom_low:'tom_mid'};
+const SIMPLE_DROP=new Set(['perc']);
 
 function visibleBars(){
   const bars=S.score.bars;
@@ -826,7 +828,7 @@ function visibleBars(){
        * beginner learns first. A crash survives only on a bar's downbeat. */
       const slot=PPQ/2, merged=new Map();
       for(const h of hits){
-        if(h.ghost) continue;
+        if(h.ghost || SIMPLE_DROP.has(h.inst)) continue;
         let inst = h.inst==='crash' ? (h.tick<slot ? 'crash' : 'hihat')
                                     : (SIMPLE_MAP[h.inst]||h.inst);
         const tick=Math.min(S.score.ticksPerBar-slot, Math.round(h.tick/slot)*slot);
@@ -1211,6 +1213,7 @@ function hit(inst, t, vel=0.8){
     case 'tom_mid': tone(200,140,0.34,0.55); break;
     case 'tom_low': tone(140,95,0.42,0.60); break;
     case 'hhfoot':  noise(6000,0.05,0.14); break;
+    case 'perc':    tone(1800,1200,0.06,0.35,'square'); noise(3000,0.03,0.12); break;
     case 'click':   tone(1400,1400,0.03,0.25,'square'); break;
     case 'click1':  tone(2100,2100,0.04,0.34,'square'); break;
   }

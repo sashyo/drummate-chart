@@ -180,9 +180,17 @@ def _best_octave(hits, period: float, bpb: int) -> float:
         if is_snare.sum() >= 4:
             sc_counts = np.sort(np.bincount(cls[is_snare], minlength=bpb))[::-1]
             top2 = float(sc_counts[:2].sum() / max(1, is_snare.sum()))
+            # a backbeat is TWO comparable classes; at double tempo every
+            # snare collapses into one class (top1 ~ 1, top2 ~ 0)
+            balance = float(min(sc_counts[0], sc_counts[1]) / max(1, sc_counts[0]))
         else:
-            top2 = 0.5
-        return (2.0 if populated >= 4 else 1.0 if populated == 3 else 0.0) + top2 + on_grid
+            top2, balance = 0.5, 0.5
+        # top2 only counts once it clearly exceeds the 'snare on every beat'
+        # spread (0.5); balance is the backbeat's defining property; on-grid
+        # is down-weighted because finer grids always score higher on it
+        backbeat = 2.0 * max(0.0, top2 - 0.5) / 0.5
+        return ((2.0 if populated >= 4 else 1.0 if populated == 3 else 0.0)
+                + backbeat + 2.0 * balance + 0.5 * on_grid)
 
     cands = [T for T in (period / 2, period, period * 2) if 60 / 200 <= T <= 60 / 60]
     if not cands:

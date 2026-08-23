@@ -86,7 +86,7 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
             stem_wav.unlink(missing_ok=True)
             det = onsets.detect_from_stems(stems, progress=progress, sensitivity=opts.sensitivity,
                                            detect_toms=opts.detect_toms,
-                                           cymbal_detail=opts.cymbal_detail)
+                                           cymbal_detail=opts.cymbal_detail, mono=stem.mono)
         except Exception as exc:  # noqa: BLE001 - fall back rather than fail the job
             note(0.58, f"Kit split unavailable ({type(exc).__name__}); using spectral detector")
             det = None

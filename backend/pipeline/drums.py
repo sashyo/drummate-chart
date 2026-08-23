@@ -28,6 +28,7 @@ DRUMS: dict[str, dict] = {
     "tom_low": dict(label="Floor tom",   key="a/4",    head="normal", midi=41, step="A", octave=4, voice=UP,   order=6),
     "kick":    dict(label="Bass drum",   key="f/4",    head="normal", midi=36, step="F", octave=4, voice=DOWN, order=7),
     "hhfoot":  dict(label="Hi-hat foot", key="d/4/x2", head="x",      midi=44, step="D", octave=4, voice=DOWN, order=8),
+    "perc":    dict(label="Perc / rim",  key="b/5/d",  head="diamond", midi=37, step="B", octave=5, voice=UP,   order=9),
 }
 
 ORDER = [k for k, _ in sorted(DRUMS.items(), key=lambda kv: kv[1]["order"])]

@@ -208,6 +208,8 @@ def _write_voice(measure, elems: list[dict], voice: int, stem: str,
                 ET.SubElement(n, "dot")
             if info["head"] == "x":
                 ET.SubElement(n, "notehead").text = "x"
+            elif info["head"] == "diamond":
+                ET.SubElement(n, "notehead").text = "diamond"
             ET.SubElement(n, "stem").text = stem
             _tuplet_xml(n, e, idx, groups, rest=False, mark=(j == 0))
 

@@ -617,14 +617,23 @@ def _counts(hits: list[Hit]) -> dict:
 # detection from per-drum stems (DrumSep)
 # --------------------------------------------------------------------------
 
-def _stem_onsets(y: np.ndarray, delta: float, wait_s: float, floor: float = 0.12):
-    """Onset times + strengths on one isolated stem."""
+def _stem_onsets(y: np.ndarray, delta: float, wait_s: float, floor: float = 0.12,
+                 abs_ref: float | None = None, abs_gate: float = 0.05):
+    """Onset times + strengths on one isolated stem.
+
+    The onset envelope is normalised per stem (a quiet hi-hat stem at
+    -38 dB was losing 40%% of its strokes to an absolute threshold), and
+    each onset must also clear an ABSOLUTE amplitude gate relative to the
+    loudest thing in the kit, so a stem that is pure bleed cannot manufacture
+    strokes out of noise.
+    """
     import librosa
     if y is None or len(y) < HOP * 4 or float(np.abs(y).max()) < 1e-4:
         return np.array([]), np.array([])
     env = librosa.onset.onset_strength(y=y, sr=SR, hop_length=HOP)
+    env = env / (float(np.percentile(env, 99)) + 1e-9)
     fr = librosa.onset.onset_detect(
-        onset_envelope=env, sr=SR, hop_length=HOP, delta=delta,
+        onset_envelope=env, sr=SR, hop_length=HOP, delta=min(delta, 0.15),
         wait=max(1, int(wait_s * SR / HOP)), pre_max=3, post_max=3,
         pre_avg=10, post_avg=10)
     fr = np.asarray(fr, dtype=int)
@@ -632,11 +641,19 @@ def _stem_onsets(y: np.ndarray, delta: float, wait_s: float, floor: float = 0.12
         return np.array([]), np.array([])
     pk = env[np.clip(fr, 0, len(env) - 1)]
     keep = pk > floor * float(np.percentile(pk, 95))
+    if abs_ref:
+        t = fr * HOP
+        amp = np.array([float(np.abs(y[i:i + int(0.04 * SR)]).max()) if i < len(y) else 0.0 for i in t])
+        keep &= amp >= abs_gate * abs_ref
     return librosa.frames_to_time(fr[keep], sr=SR, hop_length=HOP), pk[keep]
 
 
+PERC = "perc"
+
+
 def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
-                      detect_toms: bool = True, cymbal_detail: bool = True) -> Detection:
+                      detect_toms: bool = True, cymbal_detail: bool = True,
+                      mono: np.ndarray | None = None) -> Detection:
     """Detect hits when every drum already sits on its own stem.
 
     Classification is given by the stem; what remains is onset picking
@@ -646,12 +663,15 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
     d = max(0.08, 0.3 / max(sensitivity, 0.25))
     hits: list[Hit] = []
     dur = max((len(v) for v in stems.values() if v is not None), default=0) / SR
+    # loudest stroke in the kit: every stem's onsets are gated against it
+    ref = max((float(np.percentile(np.abs(v), 99.9)) for v in stems.values() if v is not None),
+              default=1.0) / max(sensitivity, 0.25)
 
     if progress:
         progress(0.62, "Picking hits on each drum")
 
     for name, inst, delta, wait in (("kick", KICK, d, 0.045), ("snare", SNARE, d, 0.040)):
-        t, pk = _stem_onsets(stems.get(name), delta, wait)
+        t, pk = _stem_onsets(stems.get(name), delta, wait, floor=0.08, abs_ref=ref, abs_gate=0.04)
         for x, v in zip(t, pk):
             hits.append(Hit(float(x), inst, float(v), confidence=0.9, meta={"stem": name}))
 
@@ -669,14 +689,14 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
     for name, inst, rel in (("crash", CRASH, 0.35), ("ride", RIDE, 0.6)):
         if not cymbal_detail:
             continue
-        t, pk = _stem_onsets(stems.get(name), d * 1.4, 0.08, floor=0.25)
+        t, pk = _stem_onsets(stems.get(name), d * 1.4, 0.08, floor=0.25, abs_ref=ref, abs_gate=0.10)
         for x, v in zip(t, pk):
             if hh_ref is not None and local_e(stems[name], x) < rel * local_e(hh_ref, x):
                 continue
             hits.append(Hit(float(x), inst, float(v), confidence=0.8, meta={"stem": name}))
 
     hh = stems.get("hh")
-    t, pk = _stem_onsets(hh, d * 0.8, 0.030)
+    t, pk = _stem_onsets(hh, d * 0.8, 0.030, abs_ref=ref, abs_gate=0.045)
     if len(t):
         S, freqs, times = _stft(hh)
         e_high = _smooth(_band(S, freqs, 5000, 16000), 3)
@@ -693,7 +713,7 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
 
     if detect_toms:
         toms = stems.get("toms")
-        t, pk = _stem_onsets(toms, d * 1.2, 0.05, floor=0.2)
+        t, pk = _stem_onsets(toms, d * 1.2, 0.05, floor=0.2, abs_ref=ref, abs_gate=0.10)
         if len(t):
             S, freqs, times = _stft(toms)
             rows = []
@@ -708,8 +728,27 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
             for (x, v, f0), lab in zip(rows, labels):
                 hits.append(Hit(x, names[int(lab)], v, confidence=0.8, meta={"stem": "toms", "f0": f0}))
 
-    # a stem's bleed of another drum's transient: same instant on two stems is
-    # usually real (kick+snare together are common), so no cross-stem veto here
+    # Everything the kit-splitter could not assign - claps, rims, shakers,
+    # electronic percussion - lives in the residual. Chart its onsets as a
+    # generic percussion line when no charted drum explains them.
+    if mono is not None and stems:
+        n = min(len(mono), *(len(v) for v in stems.values() if v is not None))
+        resid = mono[:n].astype(np.float32).copy()
+        for v in stems.values():
+            if v is not None:
+                resid -= v[:n]
+        t, pk = _stem_onsets(resid, d * 1.3, 0.05, floor=0.30)
+        if len(t):
+            known = np.array(sorted(h.time for h in hits)) if hits else np.array([])
+            ref = float(np.percentile(np.abs(mono[:n]), 99.5)) + 1e-9
+            for x, v in zip(t, pk):
+                if len(known) and np.min(np.abs(known - x)) < 0.045:
+                    continue                            # a charted drum already explains it
+                i0, i1 = int(x * SR), int((x + 0.05) * SR)
+                if float(np.abs(resid[i0:i1]).max()) < 0.18 * ref:
+                    continue                            # too faint to be a stroke
+                hits.append(Hit(float(x), PERC, float(v), confidence=0.6, meta={"stem": "residual"}))
+
     hits.sort(key=lambda h: (h.time, h.inst))
     hits = _dedupe(hits)
     _scale_velocities(hits)
