@@ -23,6 +23,7 @@ class Options:
     cymbal_detail: bool = True
     detect_swing: bool = True
     separation: str = "htdemucs"      # or "none" to skip / "hpss"
+    detector: str = "auto"            # auto | drumsep | spectral
     render_audio: bool = True
     cookies_from_browser: str | None = None
     cookie_file: str | None = None
@@ -70,8 +71,32 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
                           fixed_tempo=opts.fixed_tempo,
                           lock_grid=opts.lock_grid)
 
-    det = onsets.detect(stem.mono, progress=progress, sensitivity=opts.sensitivity,
-                        detect_toms=opts.detect_toms, cymbal_detail=opts.cymbal_detail)
+    from . import drumsep
+    use_ds = (opts.detector == "drumsep" or
+              (opts.detector == "auto" and drumsep.available()))
+    det = None
+    if use_ds:
+        try:
+            import soundfile as sf
+            stem_wav = out_dir / "_drumstem.wav"
+            sf.write(str(stem_wav), stem.mono, separate.SR, subtype="PCM_16")
+            stems = drumsep.drum_stems = drumsep.separate(stem_wav, cache_dir, progress=progress)
+            stem_wav.unlink(missing_ok=True)
+            det = onsets.detect_from_stems(stems, progress=progress, sensitivity=opts.sensitivity,
+                                           detect_toms=opts.detect_toms,
+                                           cymbal_detail=opts.cymbal_detail)
+        except Exception as exc:  # noqa: BLE001 - fall back rather than fail the job
+            note(0.58, f"Kit split unavailable ({type(exc).__name__}); using spectral detector")
+            det = None
+    if det is None:
+        det = onsets.detect(stem.mono, progress=progress, sensitivity=opts.sensitivity,
+                            detect_toms=opts.detect_toms, cymbal_detail=opts.cymbal_detail)
+
+    # The drums set the grid. The tracked grid is only a hint / fallback.
+    dg = rhythm.grid_from_drums(det.hits, det.duration, opts.beats_per_bar,
+                                tempo_hint=grid.tempo, fixed_tempo=opts.fixed_tempo,
+                                progress=progress)
+    grid = rhythm.refine_with_hits(dg or grid, det.hits, progress=progress)
 
     q = quantize.quantize(det.hits, grid, progress=progress,
                           max_subdiv=opts.max_subdiv,
@@ -87,6 +112,7 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
         "source": src.webpage_url,
         "videoId": src.video_id,
         "separation": stem.method,
+        "detector": det.debug.get("detector", "spectral"),
         "offset": opts.start or 0.0,
         "audio": audio_files,
         "stats": {

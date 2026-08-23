@@ -140,6 +140,204 @@ def _locked_grid(onset_env: np.ndarray, bpm: float, duration: float) -> np.ndarr
     return np.arange(best_phase, max(duration, best_phase + 4 * period), period)
 
 
+def _align_score(times: np.ndarray, period: float, phase: float, sigma: float = 0.09) -> float:
+    frac = ((times - phase) / period) % 1.0
+    d = np.minimum(frac, 1.0 - frac)
+    return float(np.exp(-(d / sigma) ** 2).sum())
+
+
+def _best_octave(hits, period: float, bpb: int) -> float:
+    """Choose among T/2, T, 2T by how musical the resulting bars are.
+
+    At the true tempo snares concentrate on two beat classes (the backbeat)
+    while every beat class carries hits; at half tempo snares smear across
+    all four classes and most kicks sit 'off the beat'; at double tempo
+    half the beat classes are empty. Autocorrelation alone cannot tell
+    these apart - a drum & bass track at 172 reads as 86 with a clean grid.
+    """
+    kick = np.array([h.time for h in hits if h.inst == "kick"])
+    snare = np.array([h.time for h in hits if h.inst == "snare"])
+    anchors = np.concatenate([kick, snare])
+    if len(anchors) < 16 or bpb != 4:
+        return period
+
+    def judge(T):
+        best_ph, best_sc = 0.0, -1.0
+        for ph in np.linspace(0, T, 48, endpoint=False):
+            sc = _align_score(anchors, T, ph)
+            if sc > best_sc:
+                best_sc, best_ph = sc, ph
+        pos = (anchors - best_ph) / T
+        on = np.abs(pos - np.round(pos)) < 0.15
+        on_grid = float(on.mean())
+        cls = (np.round(pos[on]).astype(int)) % bpb
+        is_snare = np.concatenate([np.zeros(len(kick), bool), np.ones(len(snare), bool)])[on]
+        counts = np.bincount(cls, minlength=bpb) / max(1, on.sum())
+        populated = int(np.sum(counts >= 0.08))
+        if is_snare.sum() >= 4:
+            sc_counts = np.sort(np.bincount(cls[is_snare], minlength=bpb))[::-1]
+            top2 = float(sc_counts[:2].sum() / max(1, is_snare.sum()))
+        else:
+            top2 = 0.5
+        return (2.0 if populated >= 4 else 1.0 if populated == 3 else 0.0) + top2 + on_grid
+
+    cands = [T for T in (period / 2, period, period * 2) if 60 / 200 <= T <= 60 / 60]
+    if not cands:
+        return period
+    scored = [(judge(T), T) for T in cands]
+    return max(scored, key=lambda x: x[0])[1]
+
+
+def grid_from_drums(hits, duration: float, beats_per_bar: int,
+                    tempo_hint: float | None = None, fixed_tempo: float | None = None,
+                    progress=None) -> BeatGrid | None:
+    """A beat grid derived from the drums, not from the mix.
+
+    Generic beat trackers lock onto guitar chugs and off-beat hats and drift
+    between the true tempo and 4:3 / 2:1 errors; every chart built on such a
+    grid is rhythmically scrambled even when each hit is right. Kick and
+    snare onsets are a far better witness: their autocorrelation gives the
+    period, a joint period/phase search aligns the grid, and a windowed
+    phase track follows slow drift.
+    """
+    anchors = np.array(sorted(h.time for h in hits if h.inst in ("kick", "snare")))
+    if len(anchors) < 16:
+        return None
+
+    # 1. period from the onset-train autocorrelation (50-200 BPM)
+    res = 0.005
+    train = np.zeros(int(duration / res) + 2)
+    train[np.clip((anchors / res).astype(int), 0, len(train) - 1)] = 1.0
+    ac = np.correlate(train, train, "full")[len(train) - 1:]
+    lags = np.arange(len(ac)) * res
+    m = (lags >= 60 / 200) & (lags <= 60 / 50)
+    if fixed_tempo:
+        period = 60.0 / fixed_tempo
+    else:
+        cand_lags = lags[m]
+        cand = ac[m] * np.exp(-((np.log(cand_lags) - np.log(60 / 110)) ** 2) / (2 * 0.5 ** 2))
+        period = float(cand_lags[int(np.argmax(cand))])
+        # octave sanity against the tracker: same tempo family, drums win
+        while period < 60 / 200:
+            period *= 2
+        while period > 60 / 60:
+            period /= 2
+
+    # 1b. octave: pick the tempo whose bars look like bars
+    if not fixed_tempo:
+        period = _best_octave(hits, period, beats_per_bar)
+
+    # 2. joint period/phase refinement
+    best = (-1.0, period, 0.0)
+    span = 0.0 if fixed_tempo else 0.035
+    for T in np.linspace(period * (1 - span), period * (1 + span), 1 if fixed_tempo else 29):
+        for ph in np.linspace(0, T, 64, endpoint=False):
+            sc = _align_score(anchors, T, ph)
+            if sc > best[0]:
+                best = (sc, T, ph)
+    _, T, ph = best
+
+    # 3. slow drift: local phase offset per window, unwrapped and interpolated
+    n_beats = int(np.ceil(duration / T)) + 2
+    k = np.arange(n_beats)
+    base = ph + k * T
+    win = 16 * T
+    centers = np.arange(win / 2, duration, win / 2)
+    offs, ts = [], []
+    prev = 0.0
+    for c in centers:
+        sel = anchors[(anchors >= c - win / 2) & (anchors < c + win / 2)]
+        if len(sel) < 6:
+            continue
+        frac = ((sel - ph) / T) % 1.0
+        cands = np.linspace(-0.5, 0.5, 64, endpoint=False)
+        scores = [np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2).sum()
+                  for d in cands]
+        d = float(cands[int(np.argmax(scores))])
+        # keep continuity with the previous window (no half-beat jumps)
+        while d - prev > 0.5:
+            d -= 1.0
+        while d - prev < -0.5:
+            d += 1.0
+        if abs(d - prev) > 0.35:
+            d = prev
+        offs.append(d); ts.append(c); prev = d
+    if ts:
+        delta = np.interp(base, ts, offs)
+        beat_times = base + delta * T
+    else:
+        beat_times = base
+    beat_times = beat_times[beat_times >= 0]
+    if beat_times[0] > T:
+        beat_times = np.concatenate([np.arange(beat_times[0] - T, -1e-9, -T)[::-1], beat_times])
+
+    ibi = np.diff(beat_times)
+    tempo_curve = np.concatenate([[60.0 / T], 60.0 / np.maximum(ibi, 1e-6)])
+    grid = BeatGrid(tempo=60.0 / T, beat_times=beat_times, beats_per_bar=beats_per_bar,
+                    downbeat_index=0, tempo_curve=tempo_curve)
+    if progress:
+        progress(0.80, f"Grid from the drums: {60 / T:.1f} BPM")
+    return grid
+
+
+def refine_with_hits(grid: BeatGrid, hits, progress=None) -> BeatGrid:
+    """Align the beat grid to the drums, then pick the downbeat musically.
+
+    Beat tracking on a full mix often locks onto guitar chugs or off-beat
+    hats, leaving every correct hit written a fraction of a beat off - a
+    chart that is 'right' and unplayable. Kick and snare land on quarter
+    notes far more than off them in nearly all popular music, so: slide
+    the grid (fraction of a beat) to maximise on-beat kick+snare mass, then
+    choose the bar phase where snares sit on 2 & 4 and kicks on 1 & 3.
+    """
+    anchors = np.array([h.time for h in hits if h.inst in ("kick", "snare")])
+    if len(anchors) < 8 or len(grid.beat_times) < 4:
+        return grid
+
+    pos = np.asarray(grid.to_beats(anchors), dtype=float)
+    frac = pos % 1.0
+    best_shift, best = 0.0, -1.0
+    for shift in np.linspace(0, 1, 96, endpoint=False):
+        d = np.abs(((frac - shift + 0.5) % 1.0) - 0.5)
+        score = float(np.exp(-(d / 0.09) ** 2).sum())
+        if score > best:
+            best, best_shift = score, shift
+    # a shift near 1.0 is a shift near 0 the other way
+    if best_shift > 0.5:
+        best_shift -= 1.0
+
+    idx = np.arange(len(grid.beat_times), dtype=float) + best_shift
+    new_times = np.asarray(grid.to_time(idx), dtype=float)
+    if best_shift < 0:
+        new_times = new_times[new_times > 0.0]
+    grid = BeatGrid(tempo=grid.tempo, beat_times=new_times,
+                    beats_per_bar=grid.beats_per_bar, downbeat_index=0,
+                    tempo_curve=np.resize(grid.tempo_curve, len(new_times)))
+
+    # downbeat: backbeat prior (4/4 and 2/4-style meters), else energy-based
+    bpb = grid.beats_per_bar
+    pos = np.asarray(grid.to_beats(anchors), dtype=float)
+    on = np.abs(pos - np.round(pos)) < 0.15
+    beat_idx = np.round(pos[on]).astype(int)
+    insts = np.array([h.inst for h in hits if h.inst in ("kick", "snare")])[on]
+    if bpb in (4, 2) and len(beat_idx) >= 8:
+        best_p, best_s = 0, -1e9
+        for p in range(bpb):
+            rel = (beat_idx - p) % bpb
+            if bpb == 4:
+                sc = (np.sum((insts == "snare") & np.isin(rel, [1, 3]))
+                      + 0.6 * np.sum((insts == "kick") & np.isin(rel, [0, 2]))
+                      - 0.8 * np.sum((insts == "snare") & (rel == 0)))
+            else:
+                sc = np.sum((insts == "snare") & (rel == 1)) + 0.6 * np.sum((insts == "kick") & (rel == 0))
+            if sc > best_s:
+                best_s, best_p = sc, p
+        grid.downbeat_index = int(best_p)
+    if progress:
+        progress(0.80, f"Grid aligned to the drums (shift {best_shift:+.2f} beat)")
+    return grid
+
+
 def _fix_octave(tempo: float) -> float:
     """Nudge obvious half/double-time errors into a drummer-friendly range."""
     t = tempo

@@ -93,6 +93,7 @@ def build(q: QScore, meta: dict) -> dict:
                       key=lambda i: K.DRUMS.get(i, {}).get("order", 99)),
         "stats": meta.get("stats", {}),
         "separation": meta.get("separation"),
+        "detector": meta.get("detector", "spectral"),
         "audio": meta.get("audio", {}),
         "offset": round(meta.get("offset", 0.0), 4),
     }

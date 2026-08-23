@@ -176,6 +176,7 @@ function collectOptions(){
     detectSwing: $('#opt-swing').checked,
     separation: $('#opt-sep').value,
     lockGrid: $('#opt-grid') ? $('#opt-grid').value==='lock' : false,
+    detector: $('#opt-detector') ? $('#opt-detector').value : 'auto',
     renderAudio: true,
   };
 }
@@ -1439,7 +1440,8 @@ function init(){
 
   api('/api/health').then(h=>{
     const p=$('#engine');
-    p.textContent = h.demucs ? 'Demucs separation ready' : 'Fast separation (no Demucs)';
+    p.textContent = h.demucs ? (h.drumsep ? 'Demucs + kit split ready' : 'Demucs separation ready')
+                             : 'Fast separation (no Demucs)';
     p.classList.toggle('pill-muted', !h.demucs);
   }).catch(()=>{ $('#engine').textContent='server offline'; });
 }

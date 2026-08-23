@@ -16,3 +16,6 @@ python-multipart>=0.0.9
 # Installed separately by run.sh because torch is a large download:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install demucs
+# neural kit split (kick/snare/toms/hats/cymbals stems) - the accurate detector
+audio-separator[cpu]>=0.30
+audioread>=3.0

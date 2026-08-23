@@ -65,6 +65,12 @@
           <input id="opt-sens" type="range" min="0.4" max="2" step="0.1" value="1">
           <output id="opt-sens-out">1.0</output>
         </label>
+        <label>Hit detection
+          <select id="opt-detector">
+            <option value="auto" selected>Neural kit split (accurate, slower)</option>
+            <option value="spectral">Fast spectral</option>
+          </select>
+        </label>
         <label>Timing grid
           <select id="opt-grid">
             <option value="auto" selected>Follow the performance</option>

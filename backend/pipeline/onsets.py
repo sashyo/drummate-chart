@@ -611,3 +611,109 @@ def _counts(hits: list[Hit]) -> dict:
     for h in hits:
         c[h.inst] = c.get(h.inst, 0) + 1
     return c
+
+
+# --------------------------------------------------------------------------
+# detection from per-drum stems (DrumSep)
+# --------------------------------------------------------------------------
+
+def _stem_onsets(y: np.ndarray, delta: float, wait_s: float, floor: float = 0.12):
+    """Onset times + strengths on one isolated stem."""
+    import librosa
+    if y is None or len(y) < HOP * 4 or float(np.abs(y).max()) < 1e-4:
+        return np.array([]), np.array([])
+    env = librosa.onset.onset_strength(y=y, sr=SR, hop_length=HOP)
+    fr = librosa.onset.onset_detect(
+        onset_envelope=env, sr=SR, hop_length=HOP, delta=delta,
+        wait=max(1, int(wait_s * SR / HOP)), pre_max=3, post_max=3,
+        pre_avg=10, post_avg=10)
+    fr = np.asarray(fr, dtype=int)
+    if len(fr) == 0:
+        return np.array([]), np.array([])
+    pk = env[np.clip(fr, 0, len(env) - 1)]
+    keep = pk > floor * float(np.percentile(pk, 95))
+    return librosa.frames_to_time(fr[keep], sr=SR, hop_length=HOP), pk[keep]
+
+
+def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
+                      detect_toms: bool = True, cymbal_detail: bool = True) -> Detection:
+    """Detect hits when every drum already sits on its own stem.
+
+    Classification is given by the stem; what remains is onset picking
+    with a per-stem floor, open/closed hats by the trough test on the hat
+    stem, and tom pitch clustering into hi / mid / floor.
+    """
+    d = max(0.08, 0.3 / max(sensitivity, 0.25))
+    hits: list[Hit] = []
+    dur = max((len(v) for v in stems.values() if v is not None), default=0) / SR
+
+    if progress:
+        progress(0.62, "Picking hits on each drum")
+
+    for name, inst, delta, wait in (("kick", KICK, d, 0.045), ("snare", SNARE, d, 0.040)):
+        t, pk = _stem_onsets(stems.get(name), delta, wait)
+        for x, v in zip(t, pk):
+            hits.append(Hit(float(x), inst, float(v), confidence=0.9, meta={"stem": name}))
+
+    # cymbals: crash and ride are given, but a stem that is pure bleed still
+    # has 'peaks' - demand the ride/crash stem carry real energy relative
+    # to the hat stem at the same instant
+    hh_ref = stems.get("hh")
+
+    def local_e(y, x, w=0.04):
+        if y is None:
+            return 0.0
+        i0 = max(0, int((x - 0.005) * SR)); i1 = min(len(y), int((x + w) * SR))
+        return float(np.mean(y[i0:i1] ** 2)) if i1 > i0 else 0.0
+
+    for name, inst, rel in (("crash", CRASH, 0.35), ("ride", RIDE, 0.6)):
+        if not cymbal_detail:
+            continue
+        t, pk = _stem_onsets(stems.get(name), d * 1.4, 0.08, floor=0.25)
+        for x, v in zip(t, pk):
+            if hh_ref is not None and local_e(stems[name], x) < rel * local_e(hh_ref, x):
+                continue
+            hits.append(Hit(float(x), inst, float(v), confidence=0.8, meta={"stem": name}))
+
+    hh = stems.get("hh")
+    t, pk = _stem_onsets(hh, d * 0.8, 0.030)
+    if len(t):
+        S, freqs, times = _stft(hh)
+        e_high = _smooth(_band(S, freqs, 5000, 16000), 3)
+        H = int(0.35 * SR / HOP)
+        for x, v in zip(t, pk):
+            f = int(np.searchsorted(times, x))
+            seg = e_high[f + 2:f + H]
+            ring = False
+            if len(seg) >= 4:
+                peak = float(e_high[f:f + 4].max()) + 1e-9
+                ring = (20.0 * np.log10(float(seg.min()) / peak + 1e-12)) > -14.0
+            hits.append(Hit(float(x), OPENHH if (ring and cymbal_detail) else HIHAT,
+                            float(v), confidence=0.9, meta={"stem": "hh"}))
+
+    if detect_toms:
+        toms = stems.get("toms")
+        t, pk = _stem_onsets(toms, d * 1.2, 0.05, floor=0.2)
+        if len(t):
+            S, freqs, times = _stft(toms)
+            rows = []
+            for x, v in zip(t, pk):
+                f = int(np.searchsorted(times, x))
+                rows.append((float(x), float(v), _peak_freq(S, freqs, f, 60, 400)))
+            f0s = np.array([r[2] for r in rows])
+            span = f0s.max() / max(f0s.min(), 1.0) if len(f0s) else 1.0
+            k = 3 if (len(rows) >= 6 and span > 1.35) else (2 if (len(rows) >= 3 and span > 1.18) else 1)
+            labels, centres = _kmeans1d(f0s, k)
+            names = {1: [TOM_MID], 2: [TOM_LOW, TOM_HI], 3: [TOM_LOW, TOM_MID, TOM_HI]}[len(centres)]
+            for (x, v, f0), lab in zip(rows, labels):
+                hits.append(Hit(x, names[int(lab)], v, confidence=0.8, meta={"stem": "toms", "f0": f0}))
+
+    # a stem's bleed of another drum's transient: same instant on two stems is
+    # usually real (kick+snare together are common), so no cross-stem veto here
+    hits.sort(key=lambda h: (h.time, h.inst))
+    hits = _dedupe(hits)
+    _scale_velocities(hits)
+    _mark_dynamics(hits)
+    if progress:
+        progress(0.78, f"{len(hits)} hits detected")
+    return Detection(hits=hits, duration=float(dur), debug={"counts": _counts(hits), "detector": "drumsep"})

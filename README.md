@@ -94,6 +94,24 @@ Accuracy on a synthetic test with known ground truth (`F1`, 117 hits):
 |------|-------|--------|------|---------|
 | 0.93 | 0.90  | 0.94   | 0.67–1.00 | **0.91** |
 
+**Neural kit split (default detector).** After Demucs isolates the kit, the
+MDX23C DrumSep model splits it again into kick / snare / toms / hi-hat /
+ride / crash stems, and detection becomes per-stem onset picking instead
+of spectral classification. On the hard fixture this lifts F1 from 0.89 to
+**0.96** (hi-hat and snare precision 1.00, kick recall 1.00). It costs about
+1x realtime on CPU on top of Demucs; "Fast spectral" in Analysis options
+skips it.
+
+**The grid comes from the drums.** Generic beat trackers lock onto guitar
+chugs and off-beat hats and drift between the true tempo and 4:3 or 2:1
+errors - which writes every correct hit on the wrong count, the single
+most damaging failure a chart can have. The tempo is now taken from the
+kick/snare onset autocorrelation, the octave is chosen by which candidate
+produces bar-like bars (snares concentrated on two beat classes, all four
+classes populated - this is what recognises a 172 BPM drum & bass track
+that reads as 86), period and phase are refined jointly, slow drift is
+tracked in windows, and the downbeat is picked with a backbeat prior.
+
 A second, harder fixture with realistic broadband hi-hats (the kind whose
 1.5–7 kHz sizzle overlaps the snare's signature) scores F1 0.89, with snare
 precision 1.00. The key ideas, each measured before being trusted:

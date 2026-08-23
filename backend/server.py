@@ -87,6 +87,7 @@ class TranscribeRequest(BaseModel):
     detectSwing: bool = True
     separation: str = "htdemucs"
     lockGrid: bool = False
+    detector: str = "auto"
     renderAudio: bool = True
 
 
@@ -104,7 +105,7 @@ def _opts(req: TranscribeRequest) -> Options:
         allow_triplets=req.allowTriplets, detect_toms=req.detectToms,
         cymbal_detail=req.cymbalDetail, detect_swing=req.detectSwing,
         separation=req.separation, render_audio=req.renderAudio,
-        lock_grid=req.lockGrid,
+        lock_grid=req.lockGrid, detector=req.detector,
         cookies_from_browser=os.environ.get("DRUMS_COOKIES_FROM_BROWSER"),
         cookie_file=os.environ.get("DRUMS_COOKIE_FILE"),
     )
@@ -248,7 +249,9 @@ def clonehero(job_id: str):
 @app.get("/api/health")
 def health():
     from .pipeline.separate import demucs_available
-    return {"ok": True, "demucs": demucs_available(), "maxSeconds": MAX_SECONDS}
+    from .pipeline.drumsep import available as drumsep_available
+    return {"ok": True, "demucs": demucs_available(), "drumsep": drumsep_available(),
+            "maxSeconds": MAX_SECONDS}
 
 
 @app.middleware("http")
