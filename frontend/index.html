@@ -148,7 +148,8 @@
     <label class="check"><input id="opt-met" type="checkbox"> Click</label>
     <label class="check"><input id="opt-follow" type="checkbox" checked> Follow</label>
     <div class="loopbox">
-      <span id="loop-label" class="muted">Loop: off</span>
+      <button id="btn-loop" class="ghost small" title="Tap, then tap the first and last bar to loop">Loop</button>
+      <span id="loop-label" class="muted">off</span>
       <button id="btn-loop-clear" class="ghost small">Clear</button>
     </div>
     <span id="clock" class="clock">0:00</span>
@@ -175,8 +176,9 @@
 
   <div id="score" class="score"></div>
   <p class="footnote muted small">
-    <b>Loop:</b> click a bar to start a loop there, then shift-click (or ctrl/\u2318-click)
-    another bar to set the end \u2014 the looped bars turn yellow. <b>Simple</b> reduces the
+    <b>Loop:</b> press <b>Loop</b>, then tap the first bar and the last bar (works with a
+    mouse or a finger). Shortcut: click a bar, then shift-click the last one. The looped
+    bars turn yellow. <b>Simple</b> reduces the
     chart to a plain kick / snare / hi-hat groove on an 8th-note grid — ideal for learning
     the song before tackling the full part. <b>Detail</b> hides the quietest hits when a
     chart comes out too busy. Both change what you see and print, not the MIDI. Automatic transcription is a starting point: turn on Edit mode to fix

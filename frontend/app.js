@@ -41,7 +41,7 @@ const TUPLET_OCCUPIED = {3:2, 6:4};
 const S = {
   jobId:null, score:null, poll:null,
   source:'drums', playing:false, speed:1,
-  loopFrom:null, loopTo:null,
+  loopFrom:null, loopTo:null, loopPick:0,
   editing:false, brush:'snare', detail:90, simple:false, teach:false,
   hatHand:(typeof localStorage!=='undefined' && localStorage.getItem('dm-hats-hand'))||'right',
   sayIt:(typeof localStorage!=='undefined' && localStorage.getItem('dm-say-hits'))==='1',
@@ -432,10 +432,10 @@ function loadVoices(){
   S.voiceLoading=true;
   ensureCtx();
   const buf={};
+  const load=(w,ext)=>fetch('voice/'+w+'.'+ext).then(r=>r.arrayBuffer())
+      .then(a=>S.ctx.decodeAudioData(a)).then(b=>{ buf[w]=b; });
   Promise.all(VOICE_WORDS.map(w=>
-    fetch('voice/'+w+'.ogg').then(r=>r.arrayBuffer())
-      .then(a=>S.ctx.decodeAudioData(a)).then(b=>{ buf[w]=b; })
-      .catch(()=>{})
+    load(w,'ogg').catch(()=>load(w,'mp3')).catch(()=>{})   // Safari/iOS: no Vorbis
   )).then(()=>{ S.voiceBuf=buf; S.voiceLoading=false;
                 if(S.sayIt) sayWord('kick'); });
 }
@@ -1298,10 +1298,13 @@ function drawLoopRange(){
 }
 
 function updateLoopLabel(){
-  const l=$('#loop-label');
-  if(S.loopFrom==null){ l.textContent='Loop: off'; return; }
+  const l=$('#loop-label'), btn=$('#btn-loop');
+  if(btn) btn.classList.toggle('armed', S.loopPick>0);
+  if(S.loopPick===1){ l.textContent='tap the first bar…'; return; }
+  if(S.loopPick===2){ l.textContent='now tap the last bar…'; return; }
+  if(S.loopFrom==null){ l.textContent='off'; return; }
   const a=S.score.bars[S.loopFrom]?.number, b=S.score.bars[S.loopTo??S.loopFrom]?.number;
-  l.textContent=`Loop: bars ${a}–${b}`;
+  l.textContent=`bars ${a}–${b}`;
 }
 function tick(){
   requestAnimationFrame(tick);
@@ -1340,6 +1343,15 @@ function onSystemClick(ev, div, geo){
   const barIdx=S.score.bars.indexOf(g.bar._orig || g.bar);
   if(barIdx<0) return;
 
+  if(!S.editing && S.loopPick){
+    // touch-friendly two-tap loop: first bar, then last bar
+    if(S.loopPick===1){ S.loopFrom=barIdx; S.loopTo=barIdx; S.loopPick=2; seek(g.bar.startTime); }
+    else {
+      if(barIdx < S.loopFrom){ S.loopTo=S.loopFrom; S.loopFrom=barIdx; } else S.loopTo=barIdx;
+      S.loopPick=0;
+    }
+    updateLoopLabel(); drawLoopRange(); return;
+  }
   if(!S.editing){
     if((ev.shiftKey || ev.ctrlKey || ev.metaKey) && S.loopFrom!=null){
       ev.preventDefault();
@@ -1420,7 +1432,8 @@ function init(){
     $('#clock').textContent='audio failed to load \u2014 press play to retry';
   });
   $('#speed').addEventListener('input', e=>setSpeed(Number(e.target.value)));
-  $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; updateLoopLabel(); drawLoopRange(); };
+  $('#btn-loop-clear').onclick=()=>{ S.loopFrom=S.loopTo=null; S.loopPick=0; updateLoopLabel(); drawLoopRange(); };
+  on('#btn-loop','click', ()=>{ S.loopPick = S.loopPick ? 0 : 1; updateLoopLabel(); });
   $('#btn-print').onclick=()=>window.print();
   $$('.seg').forEach(b=>b.onclick=()=>selectSource(b.dataset.src));
   on('#opt-edit','change', e=>{
