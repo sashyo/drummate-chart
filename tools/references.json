@@ -1,0 +1,18 @@
+[
+  {"name": "The Police - Every Breath You Take", "url": "https://www.youtube.com/watch?v=OMOGaugKpzs",
+   "bpm": 117, "pattern": "Kx . x . Sx . Kx . Kx . x . Sx . x .",
+   "note": "Copeland: kick 1, &2, 3; snare 2,4; 8th hats. Kick on the &-of-2 verified in audio (111 bars at full level).",
+   "sources": ["user reference image", "measured"]},
+  {"name": "Michael Jackson - Billie Jean", "url": "https://www.youtube.com/watch?v=OZGtRvYF-A4",
+   "bpm": 117, "pattern": "Kx . x . Sx . x . Kx . x . Sx . x .",
+   "note": "kick 1,3; snare 2,4; straight 8th hats",
+   "sources": ["https://www.wendoverdrumlessons.co.uk/post/billie-jean-drum-beat-trinity-grade-1", "https://www.robbishopdrums.com/post/how-to-play-billie-jean-on-drums"]},
+  {"name": "AC/DC - Back in Black", "url": "https://www.youtube.com/watch?v=pAgnJDJN4VA",
+   "bpm": 94, "pattern": "Kx . x . Sx . x . Kx . x . Sx . x .",
+   "note": "Phil Rudd: 8th hats, snare 2,4, kick 1,3; riff-following decoration every 4th bar is an expected deviation",
+   "sources": ["https://www.totaldrummer.com/back-in-black-acdc-drum-chart/", "https://thedrumninja.com/back-in-black-drum-transcription/"]},
+  {"name": "Queen - Another One Bites the Dust", "url": "https://www.youtube.com/watch?v=rY0WxgSXdEE",
+   "bpm": 110, "pattern": "Kx . x . KSx . x . Kx . x . KSx . x .",
+   "note": "four-on-the-floor kick, snare 2,4, 8th hats",
+   "sources": ["https://drum-patterns.com/queen-another-one-bites-the-dust/"]}
+]
