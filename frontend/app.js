@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-24a';
+const APP_BUILD='2026-08-24b';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -1460,7 +1460,11 @@ function init(){
 
   on('#opt-sens','input', e=>
     $('#opt-sens-out').textContent=Number(e.target.value).toFixed(1));
-  $('#btn-cancel').onclick=()=>{ clearInterval(S.poll); showView('setup'); };
+  $('#btn-cancel').onclick=async()=>{
+    clearInterval(S.poll);
+    if(S.jobId){ try{ await fetch(`/api/jobs/${S.jobId}`,{method:'DELETE'}); }catch(_){} }
+    showView('setup');
+  };
   $('#btn-new').onclick=()=>{ pause(); clearInterval(S.poll); showView('setup'); };
   $('#btn-play').onclick=togglePlay;
   on('#audio','error', ()=>{

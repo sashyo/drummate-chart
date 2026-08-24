@@ -71,6 +71,12 @@ class Job:
 
 
 _jobs: dict[str, Job] = {}
+_futures: dict[str, object] = {}
+_cancelled: set[str] = set()
+
+
+class Cancelled(Exception):
+    pass
 
 
 class TranscribeRequest(BaseModel):
@@ -115,11 +121,15 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
     out = JOBS_DIR / job.id
 
     def progress(p, msg):
+        if job.id in _cancelled:
+            raise Cancelled()
         with _lock:
             job.progress = float(max(0.0, min(1.0, p)))
             job.message = str(msg)
 
     try:
+        if job.id in _cancelled:
+            raise Cancelled()
         with _lock:
             job.status, job.message = "running", "Starting"
             job.title = title or url
@@ -130,6 +140,10 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
             job.title = doc.get("title")
             job.status, job.progress, job.message = "done", 1.0, "Done"
         _mark(job.id, "done")
+    except Cancelled:
+        _mark(job.id, "error")
+        with _lock:
+            job.status, job.error, job.message = "error", "Cancelled", "Cancelled"
     except FetchError as exc:
         _mark(job.id, "error")
         with _lock:
@@ -173,8 +187,9 @@ def _resume_unfinished():
         if local and not local.exists():
             continue
         job = Job(id=m["id"], message="Re-queued after a server restart")
+        job.sig = json.dumps(req.model_dump(), sort_keys=True)
         _jobs[job.id] = job
-        _pool.submit(_run, job, m.get("url"), _opts(req), local, m.get("title"))
+        _submit(job, m.get("url"), _opts(req), local, m.get("title"))
         print(f"resumed job {job.id}: {m.get('url') or m.get('title')}")
 
 
@@ -188,14 +203,26 @@ def _manifest(job_id: str, req: TranscribeRequest, url: str | None,
         "title": title, "options": req.model_dump(), "created": time.time()}))
 
 
+def _submit(job: Job, url, opts, local, title):
+    _futures[job.id] = _pool.submit(_run, job, url, opts, local, title)
+
+
 @app.post("/api/transcribe")
 def start(req: TranscribeRequest):
     if not req.url or not req.url.strip():
         raise HTTPException(400, "Paste a link first.")
+    url = req.url.strip()
+    # the same link queued twice (double-click, refresh) should not wait
+    # behind itself - hand back the pending job instead
+    sig = json.dumps(req.model_dump(), sort_keys=True)
+    for j in _jobs.values():
+        if j.status in ("queued", "running") and getattr(j, "sig", None) == sig:
+            return {"jobId": j.id, "duplicate": True}
     job = Job(id=uuid.uuid4().hex[:12])
+    job.sig = sig
     _jobs[job.id] = job
-    _manifest(job.id, req, req.url.strip(), None, None)
-    _pool.submit(_run, job, req.url.strip(), _opts(req), None, None)
+    _manifest(job.id, req, url, None, None)
+    _submit(job, url, _opts(req), None, None)
     return {"jobId": job.id}
 
 
@@ -209,7 +236,7 @@ async def upload(file: UploadFile = File(...), options: str = Form("{}")):
         shutil.copyfileobj(file.file, fh)
     title = Path(file.filename or "Upload").stem
     _manifest(job.id, req, None, dest, title)
-    _pool.submit(_run, job, None, _opts(req), dest, title)
+    _submit(job, None, _opts(req), dest, title)
     return {"jobId": job.id}
 
 
@@ -319,6 +346,46 @@ def clonehero(job_id: str):
     safe = "".join(c for c in doc.get("title", "song") if c.isalnum() or c in " -_")[:60].strip() or "song"
     return FileResponse(zpath, media_type="application/zip",
                         filename=f"{safe} [Clone Hero].zip")
+
+
+@app.get("/api/queue")
+def queue():
+    """Everything queued or running, oldest first."""
+    live = [j for j in _jobs.values() if j.status in ("queued", "running")]
+    live.sort(key=lambda j: j.created)
+    return [{"id": j.id, "status": j.status, "title": j.title, "message": j.public()["message"]}
+            for j in live]
+
+
+def _cancel(job_id: str) -> bool:
+    job = _jobs.get(job_id)
+    if job is None or job.status in ("done", "error"):
+        return False
+    _cancelled.add(job_id)
+    fut = _futures.get(job_id)
+    if fut is not None and fut.cancel():            # still queued: gone instantly
+        _mark(job_id, "error")
+        with _lock:
+            job.status, job.error, job.message = "error", "Cancelled", "Cancelled"
+    # otherwise it is running: it aborts at its next progress tick
+    return True
+
+
+@app.delete("/api/jobs/{job_id}")
+def cancel(job_id: str):
+    if not _cancel(job_id):
+        raise HTTPException(404, "No such pending job")
+    return {"ok": True}
+
+
+@app.post("/api/queue/clear")
+def clear_queue(keep: str | None = None):
+    """Cancel every queued (not running) job, optionally keeping one."""
+    n = 0
+    for j in list(_jobs.values()):
+        if j.status == "queued" and j.id != keep and _cancel(j.id):
+            n += 1
+    return {"cancelled": n}
 
 
 @app.get("/api/health")
