@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-24b';
+const APP_BUILD='2026-08-24c';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -17,7 +17,7 @@ const PPQ = 48;
 const DRUMS = {
   crash:   {label:'Crash',       key:'a/5/x2', midi:49, voice:'up',   order:0, short:'Cr'},
   hihat:   {label:'Hi-hat',      key:'g/5/x2', midi:42, voice:'up',   order:1, short:'HH'},
-  openhh:  {label:'Open hi-hat', key:'g/5/x2', midi:46, voice:'up',   order:1, short:'oHH'},
+  openhh:  {label:'Open hi-hat', key:'g/5/cx', midi:46, voice:'up',   order:1, short:'oHH'},
   ride:    {label:'Ride',        key:'f/5/x2', midi:51, voice:'up',   order:2, short:'Rd'},
   tom_hi:  {label:'High tom',    key:'e/5',    midi:48, voice:'up',   order:3, short:'T1'},
   tom_mid: {label:'Mid tom',     key:'d/5',    midi:45, voice:'up',   order:4, short:'T2'},

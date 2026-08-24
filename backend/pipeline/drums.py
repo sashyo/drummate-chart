@@ -20,7 +20,7 @@ UP, DOWN = "up", "down"
 DRUMS: dict[str, dict] = {
     "crash":   dict(label="Crash",       key="a/5/x2", head="x",      midi=49, step="A", octave=5, voice=UP,   order=0),
     "hihat":   dict(label="Hi-hat",      key="g/5/x2", head="x",      midi=42, step="G", octave=5, voice=UP,   order=1),
-    "openhh":  dict(label="Open hi-hat", key="g/5/x2", head="x",      midi=46, step="G", octave=5, voice=UP,   order=1),
+    "openhh":  dict(label="Open hi-hat", key="g/5/cx", head="circle-x", midi=46, step="G", octave=5, voice=UP,   order=1),
     "ride":    dict(label="Ride",        key="f/5/x2", head="x",      midi=51, step="F", octave=5, voice=UP,   order=2),
     "tom_hi":  dict(label="High tom",    key="e/5",    head="normal", midi=48, step="E", octave=5, voice=UP,   order=3),
     "tom_mid": dict(label="Mid tom",     key="d/5",    head="normal", midi=45, step="D", octave=5, voice=UP,   order=4),
