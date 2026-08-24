@@ -748,6 +748,7 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
         S, freqs, times = _stft(hh_pure)
         e_high = _smooth(_band(S, freqs, 5000, 16000), 3)
         H = int(0.35 * SR / HOP)
+        noise = float(np.percentile(e_high, 30)) + 1e-9      # the stem's own floor
         rings = []
         for x in t:
             f = int(np.searchsorted(times, x))
@@ -755,7 +756,11 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
             ring = False
             if len(seg) >= 4:
                 peak = float(e_high[f:f + 4].max()) + 1e-9
-                ring = (20.0 * np.log10(float(seg.min()) / peak + 1e-12)) > -14.0
+                # a trough can only be judged when the stroke stands well
+                # clear of the floor; on a very quiet stem the floor itself
+                # looks like 'ringing'
+                if peak > 6.0 * noise:
+                    ring = (20.0 * np.log10(float(seg.min()) / peak + 1e-12)) > -14.0
             rings.append(ring)
         # an open hat is an articulation, not the default stroke
         if len(rings) and float(np.mean(rings)) > 0.5:
