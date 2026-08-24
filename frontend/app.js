@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-24c';
+const APP_BUILD='2026-08-24d';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -622,7 +622,7 @@ function grooveTips(core){
   }
   if(kicks.length) tips.push(`Kick foot: <b>${listBeats(kicks)}</b>. Say it out loud while you play the hats \u2014 the mouth teaches the foot.`);
   const opens=S.score.bars.reduce((a,b)=>a+b.hits.filter(h=>h.inst==='openhh').length,0);
-  if(opens>3) tips.push(`Notes with a <b>\u25cb</b> are open hi-hats \u2014 loosen your hi-hat foot there, close it on the next hit.`);
+  if(opens>3) tips.push(`Notes with a <b>\u2297</b> (circled x) are open hi-hats \u2014 loosen your hi-hat foot there, close it on the next hit.`);
   const ghosts=S.score.bars.reduce((a,b)=>a+b.hits.filter(h=>h.ghost).length,0);
   if(ghosts>3) tips.push(`Notes in <b>(parentheses)</b> are ghost notes \u2014 tiny taps, felt more than heard. Ignore them until the groove is solid.`);
   const fills=S.score.bars.filter(b=>b.hits.some(h=>(CLASS_MAP[h.inst]||'')==='tom')).map(b=>b.number);
@@ -879,8 +879,7 @@ function renderLegend(host){
   const kit=new Set([...(S.score.kit||[]), 'kick','snare','hihat']);
   for(const inst of INSTS){
     if(!kit.has(inst)) continue;
-    legendCell(div, DRUMS[inst].label, ()=>mkKeyNote(inst,
-      inst==='openhh' ? [n=>n.addModifier(new VF.Articulation('ao').setPosition(VF.Modifier.Position.ABOVE),0)] : []));
+    legendCell(div, DRUMS[inst].label, ()=>mkKeyNote(inst, []));
   }
   legendCell(div, 'Accent', ()=>mkKeyNote('snare',
     [n=>n.addModifier(new VF.Articulation('a>').setPosition(VF.Modifier.Position.ABOVE),0)]));
@@ -1026,8 +1025,6 @@ function buildNotes(elems, dir){
       });
       if(e.accent) vf.addModifier(new VF.Articulation('a>').setPosition(
         dir==='up'?VF.Modifier.Position.ABOVE:VF.Modifier.Position.BELOW), 0);
-      if(e.open) vf.addModifier(new VF.Articulation('ao').setPosition(
-        VF.Modifier.Position.ABOVE), 0);
       if(e.ghost){
         try{ VF.Parenthesis.buildAndAttach([vf]); }catch(_){}
       }

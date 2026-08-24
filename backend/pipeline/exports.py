@@ -224,9 +224,6 @@ def _write_voice(measure, elems: list[dict], voice: int, stem: str,
                 if e.get("accent"):
                     art = ET.SubElement(nt, "articulations")
                     ET.SubElement(art, "accent")
-                if e.get("open"):
-                    tech = ET.SubElement(nt, "technical")
-                    ET.SubElement(tech, "open-string")
     return total
 
 
