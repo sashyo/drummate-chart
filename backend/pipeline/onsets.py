@@ -675,6 +675,26 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
         for x, v in zip(t, pk):
             hits.append(Hit(float(x), inst, float(v), confidence=0.9, meta={"stem": name}))
 
+    # kick_under_snare_gate: a snare's low thump leaks into the kick stem. A
+    # real kick played WITH the snare peaks like any other kick; the leak
+    # peaks at about half a kick while the snare stem is loud. Drop the leak.
+    kick_y, snare_y = stems.get("kick"), stems.get("snare")
+    if kick_y is not None and snare_y is not None:
+        def _pk(y, x, w=0.05):
+            i0 = max(0, int((x - 0.005) * SR)); i1 = min(len(y), int((x + w) * SR))
+            return float(np.abs(y[i0:i1]).max()) if i1 > i0 else 0.0
+        snare_t = np.array(sorted(h.time for h in hits if h.inst == SNARE))
+        kick_peaks = [_pk(kick_y, h.time) for h in hits if h.inst == KICK]
+        typical = float(np.percentile(kick_peaks, 60)) if kick_peaks else 0.0
+        kept = []
+        for h in hits:
+            if h.inst == KICK and len(snare_t) and np.min(np.abs(snare_t - h.time)) < 0.03:
+                kp, sp = _pk(kick_y, h.time), _pk(snare_y, h.time)
+                if kp < 0.6 * sp and kp < 0.75 * typical:
+                    continue
+            kept.append(h)
+        hits = kept
+
     # cymbals: crash and ride are given, but a stem that is pure bleed still
     # has 'peaks' - demand the ride/crash stem carry real energy relative
     # to the hat stem at the same instant
@@ -696,18 +716,51 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
             hits.append(Hit(float(x), inst, float(v), confidence=0.8, meta={"stem": name}))
 
     hh = stems.get("hh")
-    t, pk = _stem_onsets(hh, d * 0.8, 0.030, abs_ref=ref, abs_gate=0.045)
+    # Light hi-hats can sit 30 dB under the kick and get split between the
+    # hat stem and the residual's high band. Build the hat source from both.
+    if mono is not None and hh is not None:
+        n = min(len(mono), *(len(v) for v in stems.values() if v is not None))
+        resid = mono[:n].astype(np.float32).copy()
+        for v in stems.values():
+            if v is not None:
+                resid -= v[:n]
+        from scipy.signal import butter, lfilter
+        b_, a_ = butter(4, 5000 / (SR / 2), btype="high")
+        hh = hh[:n] + lfilter(b_, a_, resid).astype(np.float32)
+    # Is a quiet hat source bleed or just light hats? Bleed onsets coincide
+    # with kick/snare strokes; real hats also land where nothing else does.
+    # A credible source is picked sensitively with no kit-relative gate.
+    ks = np.array(sorted(h.time for h in hits)) if hits else np.array([])
+    t_raw, _ = _stem_onsets(hh, 0.08, 0.05)
+    if len(t_raw) and len(ks):
+        indep = float(np.mean([np.min(np.abs(ks - x)) > 0.04 for x in t_raw]))
+    else:
+        indep = 0.0
+    if indep > 0.3:
+        t, pk = _stem_onsets(hh, min(0.06, d * 0.8), 0.05, floor=0.0)
+    else:
+        t, pk = _stem_onsets(hh, d * 0.8, 0.030, abs_ref=ref, abs_gate=0.045)
     if len(t):
-        S, freqs, times = _stft(hh)
+        # open vs closed is judged on the PURE hat stem: the residual carries
+        # sustained high-band content (reverb, other instruments) that never
+        # troughs, which would mark every stroke 'open'
+        hh_pure = stems.get("hh")
+        S, freqs, times = _stft(hh_pure)
         e_high = _smooth(_band(S, freqs, 5000, 16000), 3)
         H = int(0.35 * SR / HOP)
-        for x, v in zip(t, pk):
+        rings = []
+        for x in t:
             f = int(np.searchsorted(times, x))
             seg = e_high[f + 2:f + H]
             ring = False
             if len(seg) >= 4:
                 peak = float(e_high[f:f + 4].max()) + 1e-9
                 ring = (20.0 * np.log10(float(seg.min()) / peak + 1e-12)) > -14.0
+            rings.append(ring)
+        # an open hat is an articulation, not the default stroke
+        if len(rings) and float(np.mean(rings)) > 0.5:
+            rings = [False] * len(rings)
+        for x, v, ring in zip(t, pk, rings):
             hits.append(Hit(float(x), OPENHH if (ring and cymbal_detail) else HIHAT,
                             float(v), confidence=0.9, meta={"stem": "hh"}))
 

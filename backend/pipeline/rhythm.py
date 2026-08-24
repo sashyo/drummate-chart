@@ -192,7 +192,10 @@ def _best_octave(hits, period: float, bpb: int) -> float:
         return ((2.0 if populated >= 4 else 1.0 if populated == 3 else 0.0)
                 + backbeat + 2.0 * balance + 0.5 * on_grid)
 
-    cands = [T for T in (period / 2, period, period * 2) if 60 / 200 <= T <= 60 / 60]
+    # 4:3 / 3:4 errors are as common as octave errors (117 BPM read as 156)
+    cands = [T for T in (period / 2, period * 2 / 3, period * 3 / 4, period,
+                         period * 4 / 3, period * 3 / 2, period * 2)
+             if 60 / 200 <= T <= 60 / 60]
     if not cands:
         return period
     scored = [(judge(T), T) for T in cands]

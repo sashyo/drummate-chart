@@ -6,22 +6,14 @@ Reports, per instrument, how many bars agree with the pattern and the most
 common deviations - the objective version of 'it should look like this'.
 """
 import json, sys, collections
-doc=json.load(open(sys.argv[1])); pat=sys.argv[2].replace(" ","")
-# parse pattern into per-slot sets
-slots=[]; i=0
-while i<len(pat):
-    if pat[i]=='.': slots.append(set()); i+=1
-    else:
-        s=set()
-        while i<len(pat) and pat[i]!='.': 
-            if pat[i].isalpha(): s.add(pat[i]); 
-            i+=1
-        slots.append(s)
-        # letters may be grouped without separators: treat each letter as its own slot only if lengths mismatch
-if len(slots)!=16:
-    # fallback: one letter per slot
-    slots=[set() if ch=='.' else {ch} for ch in pat]
-assert len(slots)==16, f"pattern must have 16 slots, got {len(slots)}"
+doc=json.load(open(sys.argv[1]))
+# pattern: 16 whitespace-separated slot tokens (16ths from beat 1); a token is
+# '.' for nothing or letters for every drum sounding on that 16th, e.g.
+#   "Kx . x . Sx . x . Kx . x . Sx . x ."   = straight 8th hats, kick 1&3, snare 2&4
+toks=sys.argv[2].split()
+if len(toks)!=16:
+    sys.exit(f"pattern must have 16 slot tokens separated by spaces, got {len(toks)}")
+slots=[set() if t=='.' else set(t) for t in toks]
 MAP={'kick':'K','snare':'S','hihat':'x','openhh':'x','ride':'x','crash':'x'}
 bars=[b for b in doc["bars"] if not b["empty"]]
 print(f"{doc['title'][:50]} | {doc['tempo']:.1f} BPM | {len(bars)} bars | detector {doc.get('detector')} engine {doc.get('engine')}")
