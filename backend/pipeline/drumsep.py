@@ -43,11 +43,23 @@ def _shim_librosa():
     librosa.get_duration = get_duration
 
 
+def _content_key(wav: Path) -> str:
+    """Hash the audio CONTENT - a path/mtime key misses the cache on every
+    re-run of the same song through a temp file."""
+    import soundfile as sf
+    try:
+        y, _ = sf.read(str(wav), dtype="int16", always_2d=True)
+        return hashlib.sha1(y[:: max(1, len(y) // 200000)].tobytes()
+                            + str(len(y)).encode()).hexdigest()[:16]
+    except Exception:
+        st = wav.stat()
+        return hashlib.sha1(f"{wav}|{st.st_size}".encode()).hexdigest()[:16]
+
+
 def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]:
     """Return {stem: mono float32 @44.1k} for the drum audio in `wav`."""
     cache_dir.mkdir(parents=True, exist_ok=True)
-    st = wav.stat()
-    key = hashlib.sha1(f"{wav}|{st.st_size}|{int(st.st_mtime)}|{MODEL}".encode()).hexdigest()[:16]
+    key = _content_key(wav) + "-" + hashlib.sha1(MODEL.encode()).hexdigest()[:6]
     cached = cache_dir / f"drumsep_{key}.npz"
     if cached.exists():
         z = np.load(cached)

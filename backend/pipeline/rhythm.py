@@ -165,7 +165,10 @@ def _best_octave(hits, period: float, bpb: int) -> float:
         # refine the candidate's period first: a 0.3% error drifts two
         # beats across a song and unfairly smears the finer tempo
         best_ph, best_sc, T = 0.0, -1.0, T0
-        for TT in np.linspace(T0 * 0.98, T0 * 1.02, 21):
+        # +/-4.5%: an autocorrelation seed can sit 2-3% off the true period,
+        # and a candidate that cannot reach its true tempo scores artificially
+        # low while a wrong-family candidate wins (Back in Black: 94.5 -> 126)
+        for TT in np.linspace(T0 * 0.955, T0 * 1.045, 41):
             for ph in np.linspace(0, TT, 48, endpoint=False):
                 sc = _align_score(anchors, TT, ph)
                 if sc > best_sc:

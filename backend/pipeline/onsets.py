@@ -690,7 +690,10 @@ def detect_from_stems(stems: dict, progress=None, sensitivity: float = 1.0,
         for h in hits:
             if h.inst == KICK and len(snare_t) and np.min(np.abs(snare_t - h.time)) < 0.03:
                 kp, sp = _pk(kick_y, h.time), _pk(snare_y, h.time)
-                if kp < 0.6 * sp and kp < 0.75 * typical:
+                # measured: snare-thump bleed reads ~0.5x a typical kick and
+                # ~0.45x the snare; a REAL kick played with the snare (Queen's
+                # four-on-the-floor) reads ~0.7x typical - keep it
+                if kp < 0.5 * sp and kp < 0.65 * typical:
                     continue
             kept.append(h)
         hits = kept
