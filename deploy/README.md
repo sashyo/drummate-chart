@@ -1,5 +1,8 @@
 # Deploying chart.drummate.app
 
+> Migrating to another machine? Follow **[../DEPLOY.md](../DEPLOY.md)** — the step-by-step runbook
+> (tunnel identity, GPU environment, data restore, verification, cutover, autostart).
+
 Two pieces, mirroring the rest of the DrumMate family:
 
 ## 1. The subdomain Worker (frontend + API proxy)
