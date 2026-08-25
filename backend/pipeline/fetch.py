@@ -117,6 +117,8 @@ def from_url(
             and wav_path.stat().st_mtime >= media.stat().st_mtime):
         _to_wav(media, wav_path, start, end)
 
+    from . import scratch
+    scratch.note(media); scratch.note(wav_path)
     return Source(
         path=wav_path,
         title=info.get("title") or url,
@@ -173,6 +175,8 @@ def from_file(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=nw=1:nk=1", str(wav_path)],
         capture_output=True, text=True, check=True).stdout.strip() or 0.0)
+    from . import scratch
+    scratch.note(wav_path)
     return Source(path=wav_path, title=title, duration=dur, video_id=None, webpage_url=None)
 
 

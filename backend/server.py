@@ -34,7 +34,7 @@ MAX_SECONDS = float(os.environ.get("DRUMS_MAX_SECONDS", 600))
 ALLOW_YOUTUBE = os.environ.get("DRUMS_ALLOW_YOUTUBE", "0") == "1"
 # Audio never lives long here: sources, stems and per-job mp3s are deleted
 # after this many hours. Charts, MIDI and MusicXML are kept.
-AUDIO_TTL_HOURS = float(os.environ.get("DRUMS_AUDIO_TTL_HOURS", 24))
+AUDIO_TTL_HOURS = float(os.environ.get("DRUMS_AUDIO_TTL_HOURS", 6))
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -133,6 +133,23 @@ def _opts(req: TranscribeRequest) -> Options:
     )
 
 
+def _forget_audio(local: Path | None) -> None:
+    """Delete-on-use: the uploaded/linked source, the decoded wav and the
+    separation caches for this job go the moment it ends. What stays for
+    a while is the per-job drums/backing mp3 the chart plays, until the
+    janitor's TTL. DRUMS_KEEP_SOURCES=1 keeps everything (private builds)."""
+    if os.environ.get("DRUMS_KEEP_SOURCES") == "1":
+        return
+    from .pipeline import scratch
+    for p in scratch.consume() + ([local] if local else []):
+        try:
+            p = Path(p)
+            if p.exists() and CACHE_DIR.resolve() in p.resolve().parents:
+                p.unlink()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: str | None):
     out = JOBS_DIR / job.id
 
@@ -173,6 +190,8 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
             job.status = "error"
             job.error = f"{type(exc).__name__}: {exc}"
             job.message = "Failed"
+    finally:
+        _forget_audio(local)
 
 
 def _mark(job_id: str, state: str, error: str | None = None) -> None:

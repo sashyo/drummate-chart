@@ -61,6 +61,8 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
     cache_dir.mkdir(parents=True, exist_ok=True)
     key = _content_key(wav) + "-" + hashlib.sha1(MODEL.encode()).hexdigest()[:6]
     cached = cache_dir / f"drumsep_{key}.npz"
+    from . import scratch
+    scratch.note(cached)
     if cached.exists():
         z = np.load(cached)
         return {k: z[k] for k in STEMS if k in z}

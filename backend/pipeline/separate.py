@@ -77,6 +77,8 @@ def drum_stem(wav: Path, out_dir: Path, cache_dir: Path, progress=None,
     backing_mp3 = out_dir / "backing.mp3"
 
     cached_stereo = cache_dir / f"stereo_{_cache_key(wav, model)}.npz"
+    from . import scratch
+    scratch.note(npy); scratch.note(cached_stereo)
     if npy.exists() and (not render_audio or (drums_mp3.exists() and backing_mp3.exists())):
         if progress:
             progress(0.45, "Drum stem (cached)")
