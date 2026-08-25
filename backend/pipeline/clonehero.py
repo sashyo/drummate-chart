@@ -200,7 +200,7 @@ def _to_ogg(src: Path, dst: Path) -> Path | None:
         return None
 
 
-def write_package(doc: dict, qscore, job_dir: Path) -> Path:
+def write_package(doc: dict, qscore, job_dir: Path, with_audio: bool = False) -> Path:
     """Assemble <job>/clonehero.zip; contents unzip into a CH Songs folder."""
     # a private notes file per call: two downloads of the same chart at once
     # (double click, two tabs) were deleting each other's notes.mid mid-zip
@@ -215,10 +215,24 @@ def write_package(doc: dict, qscore, job_dir: Path) -> Path:
     # Chart only. The package used to carry the separated stems as song.ogg /
     # drums.ogg - that is redistributing the recording. Like most Clone Hero
     # charts, the player adds their own song.ogg to the folder.
+    # with_audio: the chart came from the user's OWN upload, so the separated
+    # stems go in (song.ogg = the mix without drums, drums.ogg = the drums);
+    # the original mix is never included
+    backing = drums = None
+    if with_audio:
+        backing = _to_ogg(job_dir / "backing.mp3", job_dir / "ch_song.ogg") \
+            if (job_dir / "backing.mp3").exists() else None
+        drums = _to_ogg(job_dir / "drums.mp3", job_dir / "ch_drums.ogg") \
+            if (job_dir / "drums.mp3").exists() else None
     with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(notes, f"{safe}/notes.mid")
         z.writestr(f"{safe}/song.ini", _song_ini(doc))
-        z.writestr(f"{safe}/README.txt",
+        if backing:
+            z.write(backing, f"{safe}/song.ogg")
+        if drums:
+            z.write(drums, f"{safe}/drums.ogg" if backing else f"{safe}/song.ogg")
+        if not backing:
+            z.writestr(f"{safe}/README.txt",
                    "DrumMate Chart - Clone Hero package\n\n"
                    "This folder holds the drum chart (notes.mid, Pro Drums) and song.ini.\n"
                    "Add the audio yourself: put the song as song.ogg (or song.mp3) in this folder,\n"

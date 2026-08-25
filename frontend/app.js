@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26c';
+const APP_BUILD='2026-08-26d';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -280,6 +280,7 @@ function watch(jobId){
     let j;
     try{ j=await api(`/api/jobs/${jobId}`); }
     catch(e){ return; }
+    S.jobInfo=j;
     if(j.progress!==S.progSrv){ S.progSrv=j.progress; S.progAt=Date.now(); }
     let msg=j.message||'';
     // an exhausted estimate must not read as a stall
@@ -834,6 +835,17 @@ function openScore(score){
   $('#dl-ch').href=`/api/jobs/${S.jobId}/clonehero`;
   $('#dl-midi').href=`/api/jobs/${S.jobId}/files/drums.mid`;
   $('#dl-xml').href=`/api/jobs/${S.jobId}/files/drums.musicxml`;
+  // audio downloads only for charts made from the user's own upload (the
+  // server refuses them otherwise); never the original mix
+  const safe=(S.score.title||'song').replace(/[^\w \-()]+/g,'').trim().slice(0,60)||'song';
+  const own=!!(S.jobInfo && S.jobInfo.userAudio); const audio=S.score.audio||{};
+  for(const [id,file,label] of [['#dl-drums','drums.mp3','drums only'],['#dl-drumless','backing.mp3','drumless']]){
+    const a=$(id); if(!a) continue;
+    const have=own && Object.values(audio).includes(file);
+    a.classList.toggle('hidden', !have);
+    a.href=`/api/jobs/${S.jobId}/files/${file}?dl=${encodeURIComponent(safe+' - '+label+'.mp3')}`;
+    a.setAttribute('download', safe+' - '+label+'.mp3');
+  }
 
   const have=score.audio||{};
   setSegEnabled('drums', !!have.drums);

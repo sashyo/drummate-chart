@@ -66,11 +66,13 @@ class Job:
     title: str | None = None
     created: float = field(default_factory=time.time)
     score: dict | None = field(default=None, repr=False)
+    user_audio: bool = False        # the audio came from the user's own upload
 
     def public(self) -> dict:
         d = asdict(self)
         d.pop("score", None)
         d["hasScore"] = self.score is not None
+        d["userAudio"] = self.user_audio
         if self.status == "queued":
             queued_ahead = [j for j in _jobs.values()
                             if j.status == "queued" and j.created < self.created]
@@ -205,7 +207,7 @@ def _resume_unfinished():
         local = Path(m["local"]) if m.get("local") else None
         if local and not local.exists():
             continue
-        job = Job(id=m["id"], message="Re-queued after a server restart")
+        job = Job(id=m["id"], message="Re-queued after a server restart", user_audio=bool(m.get("local")))
         job.sig = json.dumps(req.model_dump(), sort_keys=True)
         _jobs[job.id] = job
         _submit(job, m.get("url"), _opts(req), local, m.get("title"))
@@ -257,6 +259,7 @@ def start(req: TranscribeRequest):
 async def upload(file: UploadFile = File(...), options: str = Form("{}")):
     req = TranscribeRequest(**json.loads(options or "{}"))
     job = Job(id=uuid.uuid4().hex[:12])
+    job.user_audio = True
     _jobs[job.id] = job
     dest = CACHE_DIR / f"upload_{job.id}_{Path(file.filename or 'audio').name}"
     with dest.open("wb") as fh:
@@ -344,7 +347,8 @@ def _get(job_id: str):
         return None
     job = Job(id=job_id, status="done", progress=1.0, message="Done",
               title=score.get("title") or meta.get("title"),
-              created=float(meta.get("created") or (d / "score.json").stat().st_mtime))
+              created=float(meta.get("created") or (d / "score.json").stat().st_mtime),
+              user_audio=bool(meta.get("local")))
     job.score = score
     with _lock:
         _jobs.setdefault(job_id, job)
@@ -387,7 +391,10 @@ def get_file(job_id: str, name: str, dl: str | None = None):
              "json": "application/json"}[name.rsplit(".", 1)[1]]
     # ?dl=<name> downloads under a song-named file ("Title - drumless.mp3")
     # instead of the internal backing.mp3; playback (no dl) streams as before
-    if dl and not name.endswith(".mp3"):
+    if dl:
+        job = _get(job_id)
+        if name.endswith(".mp3") and not (job and job.user_audio):
+            raise HTTPException(403, "Audio downloads are available for charts made from your own uploaded audio.")
         safe = "".join(c for c in dl if c.isalnum() or c in " -_().")[:80].strip()
         return FileResponse(path, media_type=media, filename=safe or name)
     return FileResponse(path, media_type=media)
@@ -459,7 +466,7 @@ def clonehero(job_id: str):
     with _pkg_locks.setdefault(job_id, threading.Lock()):
         if not zpath.exists() or (score_json.exists()
                                   and score_json.stat().st_mtime > zpath.stat().st_mtime):
-            write_package(doc, from_json(doc, []), out)
+            write_package(doc, from_json(doc, []), out, with_audio=bool(job and job.user_audio))
     safe = "".join(c for c in doc.get("title", "song") if c.isalnum() or c in " -_")[:60].strip() or "song"
     # read the whole file now: a rebuild (after an edit) replaces the zip
     # atomically, and streaming a path across that replacement produced
