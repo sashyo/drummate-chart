@@ -152,6 +152,7 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
         bar.beats = int(round(b1 - b0))
 
     _cleanup(ordered, bpb)
+    _consolidate(ordered)
     ordered = _fill_empty_bars(ordered, grid, bpb, bar_span)
     ordered = _trim_edges(ordered)
 
@@ -427,3 +428,98 @@ def _detect_swing(hits, pos) -> tuple[bool, float]:
     if med > 0.58:
         return True, med
     return False, med
+
+
+# --------------------------------------------------------------------------
+# Section consolidation
+# --------------------------------------------------------------------------
+
+_CLASS = {"kick": "kick", "snare": "snare"}
+
+
+def _cls(inst: str) -> str | None:
+    if inst in _CLASS:
+        return _CLASS[inst]
+    if inst in CYMS:
+        return "cym"
+    return None
+
+
+def _consolidate(bars: list[QBar], reach: int = 4, min_share: float = 0.6) -> None:
+    """Snap weak deviations to the section's groove, keep real ones.
+
+    A published chart writes the repeating groove and breaks it only for a
+    fill. The detector's one-off deviations - a hat lost under a crash, a
+    kick at floor velocity where the foot never plays, a single missing
+    backbeat under a vocal - are noise against that prior. For each bar and
+    each class (kick / snare / cymbal) take the most common slot pattern of
+    the bars within `reach` on either side; when that pattern holds a clear
+    majority, a weak extra (below half the class's typical velocity) that
+    the pattern lacks is dropped, and a slot the pattern has that this bar
+    lacks is filled - unless the bar is a fill (toms, or several strong
+    extras), which is left exactly as played.
+    """
+    if len(bars) < 2 * reach + 1:
+        return
+    n = len(bars)
+    sigs = []
+    for b in bars:
+        slot = PPQ // 4
+        d: dict[str, set] = {"kick": set(), "snare": set(), "cym": set()}
+        for x in b.notes:
+            c = _cls(x.inst)
+            if c:
+                d[c].add(x.tick // slot)
+        sigs.append({c: frozenset(v) for c, v in d.items()})
+    typ = {}
+    for c in ("kick", "snare", "cym"):
+        v = [x.velocity for b in bars for x in b.notes if _cls(x.inst) == c]
+        typ[c] = float(np.median(v)) if v else 0.5
+    slot = PPQ // 4
+    for i, b in enumerate(bars):
+        if b.beats != 4:
+            continue
+        span = b.end_time - b.start_time
+        has_toms = any(x.inst.startswith("tom") for x in b.notes)
+        lo, hi = max(0, i - reach), min(n, i + reach + 1)
+        for c in ("kick", "snare", "cym"):
+            window = [sigs[j][c] for j in range(lo, hi) if j != i and sigs[j][c]]
+            if len(window) < 3:
+                continue
+            counts: dict[frozenset, int] = {}
+            for w in window:
+                counts[w] = counts.get(w, 0) + 1
+            mode, k = max(counts.items(), key=lambda kv: kv[1])
+            if k / len(window) < min_share:
+                continue
+            mine = sigs[i][c]
+            if mine == mode or not mine:
+                continue
+            extras = mine - mode
+            missing = mode - mine
+            strong_extras = [x for x in b.notes if _cls(x.inst) == c
+                             and x.tick // slot in extras and x.velocity >= 0.5 * typ[c]]
+            if has_toms or len(strong_extras) >= 2:
+                continue                                   # a fill: keep as played
+            if len(extras) + len(missing) > 4:
+                continue                                   # a different groove, not noise
+            keep = []
+            for x in b.notes:
+                if _cls(x.inst) == c and x.tick // slot in extras and x.velocity < 0.5 * typ[c]:
+                    continue
+                keep.append(x)
+            b.notes = keep
+            inst = {"kick": "kick", "snare": "snare", "cym": "hihat"}[c]
+            if c == "cym":
+                # fill with the cymbal this bar / the section actually uses
+                cy = [x.inst for x in b.notes if x.inst in CYMS] or \
+                     [x.inst for j in range(lo, hi) for x in bars[j].notes if x.inst in CYMS]
+                if cy:
+                    inst = max(set(cy), key=cy.count)
+            for sl in missing:
+                if any(_cls(x.inst) == c and x.tick // slot == sl for x in b.notes):
+                    continue
+                b.notes.append(QNote(tick=sl * slot, inst=inst, velocity=typ[c],
+                                     time=b.start_time + span * sl / 16))
+            b.notes.sort(key=lambda x: (x.tick, x.inst))
+            sigs[i] = {**sigs[i], c: frozenset(x.tick // slot for x in b.notes if _cls(x.inst) == c)}
