@@ -84,7 +84,10 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
         # from elapsed time so the bar keeps moving and shows a time estimate.
         import threading, time, soundfile as sf
         try:
-            info = sf.info(str(wav)); expect = max(20.0, info.duration * 1.15)
+            info = sf.info(str(wav))
+            from . import gpu
+            # ~1x realtime on 10 CPU threads; a few times faster on a GPU
+            expect = max(20.0, info.duration * (0.3 if gpu.device() == "cuda" else 1.15))
         except Exception:
             expect = 240.0
         stop = threading.Event()
@@ -106,7 +109,28 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
             progress(0.50, "Splitting the kit: kick / snare / toms / hats / cymbals")
         th = threading.Thread(target=ticker, daemon=True); th.start()
         try:
-            outs = sep.separate(str(wav))
+            from . import gpu
+            if gpu.device() == "cuda":
+                try:
+                    with gpu.LOCK:
+                        outs = sep.separate(str(wav))
+                except Exception as exc:  # noqa: BLE001 - 3 GB card: retry with short segments
+                    if not gpu.is_oom(exc):
+                        raise
+                    import torch
+                    torch.cuda.empty_cache()
+                    print(f"drumsep: GPU out of memory ({exc}); retrying with segment 128")
+                    sep = Separator(
+                        log_level=40, output_dir=str(tmp), output_format="WAV",
+                        model_file_dir=os.path.expanduser("~/.cache/drumsep"),
+                        mdxc_params={"segment_size": 128, "override_model_segment_size": True,
+                                     "batch_size": 1, "overlap": 2, "pitch_shift": 0},
+                    )
+                    sep.load_model(model_filename=MODEL)
+                    with gpu.LOCK:
+                        outs = sep.separate(str(wav))
+            else:
+                outs = sep.separate(str(wav))
         finally:
             stop.set(); th.join(timeout=3)
         stems: dict[str, np.ndarray] = {}

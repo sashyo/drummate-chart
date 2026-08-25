@@ -154,13 +154,37 @@ def _demucs(wav: Path, progress, model: str):
 
     # the fine-tuned bag is the quality path - give it the better overlap too
     overlap = 0.25 if model.endswith("_ft") else 0.15
-    with torch.no_grad():
-        # shifts=0: demucs defaults to ONE random 0-0.5 s time shift per call,
-        # which made the same song come back a different stem every run
-        # (-21 dB run-to-run difference). One shift averages nothing, so
-        # dropping it costs no quality and makes results reproducible.
-        sources = apply_model(net, audio_n[None], device="cpu", split=True, shifts=0,
-                              overlap=overlap, progress=False, callback=_Cb())[0]
+    from . import gpu
+
+    def run(device: str):
+        # a 3 GB card needs shorter segments than the 7.8 s default
+        seg = None
+        if device == "cuda" and gpu.vram_gb() < 4.5:
+            seg = 5.0
+        with torch.no_grad():
+            # shifts=0: demucs defaults to ONE random 0-0.5 s time shift per
+            # call, which made the same song come back a different stem
+            # every run (-21 dB run-to-run difference). One shift averages
+            # nothing, so dropping it costs no quality and makes results
+            # reproducible.
+            return apply_model(net, audio_n[None], device=device, split=True, shifts=0,
+                               overlap=overlap, progress=False, callback=_Cb(),
+                               **({"segment": seg} if seg else {}))[0]
+
+    dev = gpu.device()
+    if dev == "cuda":
+        try:
+            with gpu.LOCK:
+                sources = run("cuda")
+                torch.cuda.empty_cache()
+        except Exception as exc:  # noqa: BLE001 - VRAM is small; fall back rather than fail
+            if not gpu.is_oom(exc):
+                raise
+            print(f"demucs: GPU out of memory ({exc}); running on CPU")
+            torch.cuda.empty_cache()
+            sources = run("cpu")
+    else:
+        sources = run("cpu")
     sources = sources * std + mean
 
     di = net.sources.index("drums")
