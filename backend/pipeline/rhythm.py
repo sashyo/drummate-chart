@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import os
 import numpy as np
 
 SR = 44100
@@ -179,6 +180,10 @@ def _align_score(times: np.ndarray, period: float, phase: float, sigma: float = 
     return float(np.exp(-(d / sigma) ** 2).sum())
 
 
+TEMPO_PRIOR_W = float(os.environ.get("DRUMS_TEMPO_PRIOR", "1.0"))
+ONGRID_W = float(os.environ.get("DRUMS_ONGRID_W", "3.0"))
+
+
 def _best_octave(hits, period: float, bpb: int, ac_mass=None) -> float:
     """Choose among T/2, T, 2T by how musical the resulting bars are.
 
@@ -228,12 +233,24 @@ def _best_octave(hits, period: float, bpb: int, ac_mass=None) -> float:
         # spread (0.5); balance is the backbeat's defining property; on-grid
         # is down-weighted because finer grids always score higher on it
         backbeat = 2.0 * max(0.0, top2 - 0.5) / 0.5
+        # on-grid fraction: at half the true tempo the backbeat snares fall
+        # BETWEEN the candidate's beats and vanish from every other term, so
+        # the bar shape is judged on kicks alone (Journey: 60 read for 121).
+        # Strong snares off the grid must cost the candidate.
+        sn_all = np.array([h.time for h in strong if h.inst == "snare" and h.velocity >= 0.5])
+        if len(sn_all) >= 8:
+            sp = (sn_all - best_ph) / T
+            sn_on = float((np.abs(sp - np.round(sp)) < 0.15).mean())
+        else:
+            sn_on = on_grid
         return ((2.0 if populated >= 4 else 1.0 if populated == 3 else 0.0)
-                + backbeat + 2.0 * balance + 0.5 * on_grid)
+                + backbeat + 2.0 * balance + 0.5 * on_grid + ONGRID_W * (sn_on - 0.8))
 
-    # 4:3 / 3:4 errors are as common as octave errors (117 BPM read as 156)
-    cands = [T for T in (period / 2, period * 2 / 3, period * 3 / 4, period,
-                         period * 4 / 3, period * 3 / 2, period * 2)
+    # 4:3 / 3:4 errors are as common as octave errors (117 BPM read as 156),
+    # and a fast punk song's autocorrelation can peak at a third of the tempo
+    # (American Idiot: 62 read for 184)
+    cands = [T for T in (period / 3, period / 2, period * 2 / 3, period * 3 / 4, period,
+                         period * 4 / 3, period * 3 / 2, period * 2, period * 3)
              if 60 / 200 <= T <= 60 / 60]
     if not cands:
         return period
@@ -250,6 +267,10 @@ def _best_octave(hits, period: float, bpb: int, ac_mass=None) -> float:
         sc = judge(T)
         if ref:
             sc += float(np.clip(np.log((ac_mass(T) + 1.0) / (ref + 1.0)), -2.0, 0.0))
+        # a mild prior on where songs live: 30 of 89 charted songs came out at
+        # the wrong ratio, most of them read at half speed (60-70 BPM for a
+        # 120-140 song). Centre 120 BPM, one sigma spans ~75-190.
+        sc += TEMPO_PRIOR_W * float(np.exp(-(np.log((60.0 / T) / 120.0) / 0.47) ** 2))
         scored.append((sc, T))
     return max(scored, key=lambda x: x[0])[1]
 
