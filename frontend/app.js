@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-25f';
+const APP_BUILD='2026-08-25g';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -1502,7 +1502,22 @@ function on(sel, ev, fn){
   return el;
 }
 
+async function loadNotice(){
+  // a site-wide banner driven by frontend/notice.json (served no-cache, so
+  // editing the file is enough); empty text hides it
+  try{
+    const r=await fetch('notice.json?t='+Date.now(), {cache:'no-store'}); if(!r.ok) return;
+    const n=await r.json(); const el=$('#notice'); if(!el) return;
+    if(n && n.text){
+      $('#notice-text').textContent=n.text;
+      const a=$('#notice-link');
+      if(n.link){ a.href=n.link; a.textContent=n.linkText||n.link; a.classList.remove('hidden'); } else a.classList.add('hidden');
+      el.classList.remove('hidden');
+    } else el.classList.add('hidden');
+  }catch(_){}
+}
 function init(){
+  loadNotice(); setInterval(loadNotice, 120000);
   $('#btn-go').onclick=startJob;
   $('#url').addEventListener('keydown', e=>{ if(e.key==='Enter') startJob(); });
   $('#file').addEventListener('change', e=>{ if(e.target.files[0]) startUpload(e.target.files[0]); });

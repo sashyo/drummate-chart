@@ -333,3 +333,10 @@ button,.seg,.ghost{touch-action:manipulation; -webkit-tap-highlight-color:transp
   .transport{position:static} .tspeed{min-width:0}
   .card .sticker{display:none}
 }
+
+/* site notice (frontend/notice.json) */
+.notice{background:var(--yellow); color:#141414; border-bottom:3px solid #141414; padding:10px 16px;
+  font-family:var(--f-mono); font-size:.85rem; line-height:1.4; text-align:center}
+.notice a{color:#141414; font-weight:700; margin-left:8px}
+.notice.hidden{display:none}
+@media print{ .notice{display:none} }
