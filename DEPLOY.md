@@ -171,5 +171,9 @@ tunnel runs the same way next to the container (point the ingress at the contain
 - **Demucs `shifts` must be 0** (it is, in `separate.py`); the default random shift made results non-reproducible.
 - **Non-Latin song titles** used to crash the MIDI export; fixed (titles are transliterated for MIDI meta text).
 - **yt-dlp needs Node** for full-quality streams; without a JS runtime YouTube gives 360p only and 403s.
-- Frontend files are served with `Cache-Control: no-cache`; `frontend/notice.json` drives a site
-  banner (edit the text, empty hides it; no restart).
+- **Cloudflare caches `app.js`/`style.css` at the edge regardless of the origin's `no-cache`** (it
+  rewrites Cache-Control to `max-age=14400`), so after a deploy visitors ran old script. Assets are
+  therefore versioned: `frontend/index.html` references `app.js?v=<build>`, and the build stamp
+  must be bumped on every frontend change — `python tools/bump_build.py 2026-08-27a` updates all
+  three places. The origin also sends `no-store` on the app shell.
+- `frontend/notice.json` drives a site banner (edit the text, empty hides it; no restart).
