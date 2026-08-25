@@ -32,6 +32,8 @@ MAX_SECONDS = float(os.environ.get("DRUMS_MAX_SECONDS", 600))
 # and, served to strangers, a distribution of someone else's recording;
 # a private build for personal use can turn it back on.
 ALLOW_YOUTUBE = os.environ.get("DRUMS_ALLOW_YOUTUBE", "0") == "1"
+# ...unless the user ticks the rights statement (recorded on the job)
+YOUTUBE_WITH_CONSENT = os.environ.get("DRUMS_YOUTUBE_WITH_CONSENT", "1") == "1"
 # Audio never lives long here: sources, stems and per-job mp3s are deleted
 # after this many hours. Charts, MIDI and MusicXML are kept.
 AUDIO_TTL_HOURS = float(os.environ.get("DRUMS_AUDIO_TTL_HOURS", 6))
@@ -112,6 +114,7 @@ class TranscribeRequest(BaseModel):
     lockGrid: bool = False
     detector: str = "auto"
     renderAudio: bool = True
+    rights: bool = False           # user states they hold the rights to this recording
 
 
 def _opts(req: TranscribeRequest) -> Options:
@@ -242,7 +245,8 @@ def _manifest(job_id: str, req: TranscribeRequest, url: str | None,
     d.mkdir(parents=True, exist_ok=True)
     (d / "job.json").write_text(json.dumps({
         "id": job_id, "url": url, "local": str(local) if local else None,
-        "title": title, "options": req.model_dump(), "created": time.time()}))
+        "title": title, "options": req.model_dump(), "created": time.time(),
+        "rights_stated": bool(getattr(req, "rights", False)), "rights_stated_at": time.time() if getattr(req, "rights", False) else None}))
 
 
 def _submit(job: Job, url, opts, local, title):
@@ -255,7 +259,13 @@ def start(req: TranscribeRequest):
         raise HTTPException(400, "Paste a link first.")
     url = req.url.strip()
     if not ALLOW_YOUTUBE:
-        _check_audio_link(url)
+        if req.rights and YOUTUBE_WITH_CONSENT:
+            # the user has stated they hold the rights: the fetch proceeds and
+            # the statement is recorded on the job. Link-sourced charts stay
+            # chart-only, delete-on-use and session-only regardless.
+            pass
+        else:
+            _check_audio_link(url)
     # the same link queued twice (double-click, refresh) should not wait
     # behind itself - hand back the pending job instead
     sig = json.dumps(req.model_dump(), sort_keys=True)
@@ -553,6 +563,7 @@ def health():
     from .pipeline.drumsep import available as drumsep_available
     return {"ok": True, "demucs": demucs_available(), "drumsep": drumsep_available(),
             "maxSeconds": MAX_SECONDS, "workers": WORKERS, "youtube": ALLOW_YOUTUBE,
+            "youtubeWithConsent": YOUTUBE_WITH_CONSENT,
             "audioTtlHours": AUDIO_TTL_HOURS}
 
 

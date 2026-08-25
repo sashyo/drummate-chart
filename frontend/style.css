@@ -345,3 +345,6 @@ button,.seg,.ghost{touch-action:manipulation; -webkit-tap-highlight-color:transp
 .filedrop-main{padding:28px 18px; font-size:1.05rem}
 .filedrop-main small{display:block; margin-top:8px; font-size:.72rem}
 #link-note{margin:6px 0 0}
+
+.rights{display:flex; gap:8px; align-items:flex-start; margin:8px 0 0; color:var(--muted); line-height:1.35; cursor:pointer}
+.rights input{margin-top:3px}
