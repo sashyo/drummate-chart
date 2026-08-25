@@ -331,7 +331,7 @@ _ALLOWED = {"drums.mp3", "backing.mp3", "drums.mid", "drums.musicxml", "score.js
 
 
 @app.get("/api/jobs/{job_id}/files/{name}")
-def get_file(job_id: str, name: str):
+def get_file(job_id: str, name: str, dl: str | None = None):
     if name not in _ALLOWED:
         raise HTTPException(404, "Unknown file")
     path = (JOBS_DIR / job_id / name).resolve()
@@ -340,7 +340,12 @@ def get_file(job_id: str, name: str):
     media = {"mp3": "audio/mpeg", "mid": "audio/midi",
              "musicxml": "application/vnd.recordare.musicxml+xml",
              "json": "application/json"}[name.rsplit(".", 1)[1]]
-    return FileResponse(path, media_type=media, filename=name)
+    # ?dl=<name> downloads under a song-named file ("Title - drumless.mp3")
+    # instead of the internal backing.mp3; playback (no dl) streams as before
+    if dl:
+        safe = "".join(c for c in dl if c.isalnum() or c in " -_().")[:80].strip()
+        return FileResponse(path, media_type=media, filename=safe or name)
+    return FileResponse(path, media_type=media)
 
 
 class ReexportRequest(BaseModel):
