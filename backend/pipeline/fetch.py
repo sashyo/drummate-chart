@@ -111,7 +111,11 @@ def from_url(
 
     if progress:
         progress(0.10, "Decoding audio")
-    _to_wav(media, wav_path, start, end)
+    # Same media, same clip -> same wav; don't re-decode (keeps the stem
+    # caches, keyed on content, warm across repeats of a song).
+    if not (wav_path.exists() and wav_path.stat().st_size > 1000
+            and wav_path.stat().st_mtime >= media.stat().st_mtime):
+        _to_wav(media, wav_path, start, end)
 
     return Source(
         path=wav_path,

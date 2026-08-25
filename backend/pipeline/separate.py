@@ -29,8 +29,19 @@ class Stems:
 
 
 def _cache_key(wav: Path, model: str) -> str:
-    st = wav.stat()
-    return hashlib.sha1(f"{wav}|{st.st_size}|{int(st.st_mtime)}|{model}".encode()).hexdigest()[:16]
+    """Key on the audio CONTENT, not the path/mtime. The wav is re-decoded on
+    every fetch, so an mtime key missed on every repeat of a song - a second
+    look at the same track paid the full Demucs run again AND got a slightly
+    different stem back (CPU Demucs is not bit-reproducible), which made
+    benchmark scores wobble with identical code."""
+    try:
+        import soundfile as sf
+        y, _ = sf.read(str(wav), dtype="int16", always_2d=True)
+        sample = y[:: max(1, len(y) // 200000)].tobytes()
+        return hashlib.sha1(sample + f"|{len(y)}|{model}".encode()).hexdigest()[:16]
+    except Exception:
+        st = wav.stat()
+        return hashlib.sha1(f"{wav}|{st.st_size}|{model}".encode()).hexdigest()[:16]
 
 
 def demucs_available() -> bool:
@@ -144,7 +155,11 @@ def _demucs(wav: Path, progress, model: str):
     # the fine-tuned bag is the quality path - give it the better overlap too
     overlap = 0.25 if model.endswith("_ft") else 0.15
     with torch.no_grad():
-        sources = apply_model(net, audio_n[None], device="cpu", split=True,
+        # shifts=0: demucs defaults to ONE random 0-0.5 s time shift per call,
+        # which made the same song come back a different stem every run
+        # (-21 dB run-to-run difference). One shift averages nothing, so
+        # dropping it costs no quality and makes results reproducible.
+        sources = apply_model(net, audio_n[None], device="cpu", split=True, shifts=0,
                               overlap=overlap, progress=False, callback=_Cb())[0]
     sources = sources * std + mean
 
