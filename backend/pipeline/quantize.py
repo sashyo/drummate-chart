@@ -270,6 +270,14 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
     kv = [x.velocity for b in bars for x in b.notes if x.inst == "kick"]
     if kv and float(np.median(kv)) >= 0.3:
         kslots = [{x.tick for x in b.notes if x.inst == "kick"} for b in bars]
+        # Is a floor kick under the snare bleed, or the groove? Bleed shows
+        # on a minority of snares (Every Breath You Take: 12%); a kick that
+        # doubles the backbeat is on most of them (Another One Bites the
+        # Dust: 65%, played at floor velocity because the snare masks it).
+        n_sn = sum(1 for b in bars for x in b.notes if x.inst == "snare")
+        n_co = sum(1 for b in bars for x in b.notes if x.inst == "kick"
+                   and any(y.inst == "snare" and y.tick == x.tick for y in b.notes))
+        doubling = n_sn and n_co / n_sn >= 0.5
         for bi, bar in enumerate(bars):
             snare_ticks = {x.tick for x in bar.notes if x.inst == "snare"}
             near = set()
@@ -281,7 +289,7 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
             # nowhere nearby is a stray (a feathered kick pattern repeats)
             bar.notes = [x for x in bar.notes if not (
                 x.inst == "kick" and x.velocity <= 0.06
-                and (x.tick in snare_ticks or x.tick not in near))]
+                and ((x.tick in snare_ticks and not doubling) or x.tick not in near))]
 
     # A floor-velocity snare (below its own local 10th percentile) is either
     # a ghost note or bleed. Ghost grooves REPEAT - the same slot carries a
