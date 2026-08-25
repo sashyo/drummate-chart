@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26h';
+const APP_BUILD='2026-08-26i';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -1535,8 +1535,9 @@ function init(){
   const release=()=>{ if(S.jobId && S.score){ try{ navigator.sendBeacon(`/api/jobs/${S.jobId}/release`); }catch(_){} } };
   window.addEventListener('pagehide', release);
   api('/api/health').then(h=>{
-    if(!h) return;
-    if(h.links===false){ for(const sel of ['#link-row','#link-note','#rights-row','.or']) $(sel)?.classList.add('hidden'); return; }
+    if(!h || h.links===false) return;                 // upload-only: the link section stays hidden
+    for(const sel of ['#link-or','#link-row','#link-note']) $(sel)?.classList.remove('hidden');
+    if(h.youtubeWithConsent && !h.youtube) $('#rights-row')?.classList.remove('hidden');
     if(h.youtube){ $('#url').placeholder='https://www.youtube.com/watch?v=… or a direct audio link'; $('#link-note').textContent='A YouTube link or a direct link to an audio file.'; $('#rights-row')?.classList.add('hidden'); }
     else if(!h.youtubeWithConsent){ $('#rights-row')?.classList.add('hidden'); $('#link-note').textContent='A link straight to an audio file (.mp3 / .wav / .m4a / .ogg / .flac). YouTube and other streaming sites can\'t be used.'; }
   }).catch(()=>{});

@@ -39,14 +39,14 @@
       <small class="muted">Your audio is used only to make your chart and is deleted the moment the chart is done; the drum and backing tracks exist only while you have the chart open.</small>
     </label>
 
-    <div class="or"><span>or paste a direct link to an audio file</span></div>
-    <div class="row" id="link-row">
+    <div class="or hidden" id="link-or"><span>or paste a direct link to an audio file</span></div>
+    <div class="row hidden" id="link-row">
       <input id="url" type="url" spellcheck="false"
              placeholder="https://…/song.mp3" autocomplete="off">
       <button id="btn-go" class="primary">Transcribe</button>
     </div>
-    <p class="small muted" id="link-note">A link straight to an audio file (.mp3 / .wav / .m4a / .ogg / .flac), or a YouTube link if you tick the box below.</p>
-    <label class="rights small" id="rights-row"><input type="checkbox" id="rights"> I own the rights to this recording, or have permission to use it, and I take responsibility for using it here for my own practice. Charts from links come without downloadable audio.</label>
+    <p class="small muted hidden" id="link-note">A link straight to an audio file (.mp3 / .wav / .m4a / .ogg / .flac), or a YouTube link if you tick the box below.</p>
+    <label class="rights small hidden" id="rights-row"><input type="checkbox" id="rights"> I own the rights to this recording, or have permission to use it, and I take responsibility for using it here for my own practice. Charts from links come without downloadable audio.</label>
 
     <details class="opts">
       <summary>Analysis options</summary>
