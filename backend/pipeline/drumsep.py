@@ -80,9 +80,30 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
                          "batch_size": 1, "overlap": 2, "pitch_shift": 0},
         )
         sep.load_model(model_filename=MODEL)
+        # The split blocks for roughly 1x realtime on CPU. Project progress
+        # from elapsed time so the bar keeps moving and shows a time estimate.
+        import threading, time, soundfile as sf
+        try:
+            info = sf.info(str(wav)); expect = max(20.0, info.duration * 1.15)
+        except Exception:
+            expect = 240.0
+        stop = threading.Event()
+
+        def ticker():
+            t0 = time.time()
+            while not stop.wait(2.0):
+                frac = min(0.97, (time.time() - t0) / expect)
+                left = max(0, int(expect - (time.time() - t0)))
+                if progress:
+                    progress(0.50 + 0.10 * frac,
+                             f"Splitting the kit: kick / snare / toms / hats / cymbals \u2014 about {left // 60}:{left % 60:02d} left")
         if progress:
             progress(0.50, "Splitting the kit: kick / snare / toms / hats / cymbals")
-        outs = sep.separate(str(wav))
+        th = threading.Thread(target=ticker, daemon=True); th.start()
+        try:
+            outs = sep.separate(str(wav))
+        finally:
+            stop.set(); th.join(timeout=3)
         stems: dict[str, np.ndarray] = {}
         for o in outs:
             name = o.split("_(")[-1].split(")")[0]

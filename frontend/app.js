@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-24e';
+const APP_BUILD='2026-08-25a';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -224,12 +224,23 @@ function watch(jobId){
   showView('progress');
   $('#prog-fill').style.width='2%';
   $('#prog-msg').textContent='Queued…';
-  clearInterval(S.poll);
+  clearInterval(S.poll); clearInterval(S.creep);
+  S.progT0=Date.now(); S.progSrv=0.02; S.progAt=Date.now();
+  // Between server updates the bar creeps a little (never past the next
+  // stage) and the clock ticks - a frozen bar reads as a hung app.
+  S.creep=setInterval(()=>{
+    const idle=(Date.now()-S.progAt)/1000;
+    const creep=Math.min(0.035, 0.035*(1-Math.exp(-idle/45)));
+    const shown=Math.min(0.99, S.progSrv+creep);
+    $('#prog-fill').style.width=(shown*100).toFixed(1)+'%';
+    if($('#prog-pct')) $('#prog-pct').textContent=Math.round(shown*100)+'%';
+    if($('#prog-elapsed')) $('#prog-elapsed').textContent=fmtTime((Date.now()-S.progT0)/1000)+' elapsed';
+  }, 500);
   S.poll=setInterval(async()=>{
     let j;
     try{ j=await api(`/api/jobs/${jobId}`); }
     catch(e){ return; }
-    $('#prog-fill').style.width=(j.progress*100).toFixed(1)+'%';
+    if(j.progress!==S.progSrv){ S.progSrv=j.progress; S.progAt=Date.now(); }
     $('#prog-msg').textContent=j.message||'';
     $$('#prog-steps li').forEach(li=>{
       const at=Number(li.dataset.at);
@@ -237,11 +248,11 @@ function watch(jobId){
       li.classList.toggle('active', j.progress<at && j.progress>at-0.35);
     });
     if(j.status==='done'){
-      clearInterval(S.poll);
+      clearInterval(S.poll); clearInterval(S.creep);
       const score=await api(`/api/jobs/${jobId}/score`);
       openScore(score);
     }else if(j.status==='error'){
-      clearInterval(S.poll);
+      clearInterval(S.poll); clearInterval(S.creep);
       showView('setup');
       showError(j.error||'Transcription failed.');
     }
@@ -1459,7 +1470,7 @@ function init(){
   on('#opt-sens','input', e=>
     $('#opt-sens-out').textContent=Number(e.target.value).toFixed(1));
   $('#btn-cancel').onclick=async()=>{
-    clearInterval(S.poll);
+    clearInterval(S.poll); clearInterval(S.creep);
     if(S.jobId){ try{ await fetch(`/api/jobs/${S.jobId}`,{method:'DELETE'}); }catch(_){} }
     showView('setup');
   };
