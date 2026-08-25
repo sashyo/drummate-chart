@@ -682,6 +682,13 @@ _last_touch: dict[str, float] = {}
 
 
 def _release_audio(job_id: str) -> int:
+    # a chart made from the user's OWN upload keeps its drum/backing tracks
+    # for the AUDIO_TTL_HOURS cap (their file; downloads must survive a
+    # reload). Link-sourced charts are session-only.
+    j = _get(job_id)
+    if j is not None and j.user_audio:
+        _last_touch.pop(job_id, None)
+        return 0
     d = JOBS_DIR / job_id
     n = 0
     for name in _JOB_AUDIO:
