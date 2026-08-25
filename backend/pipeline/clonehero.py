@@ -85,7 +85,8 @@ def write_notes_mid(doc: dict, qscore, path: Path) -> Path:
     tempo_tr = mido.MidiTrack()
     drum_tr = mido.MidiTrack()
     mid.tracks += [tempo_tr, drum_tr]
-    tempo_tr.append(mido.MetaMessage("track_name", name=doc.get("title", "song")[:100], time=0))
+    from .exports import midi_text
+    tempo_tr.append(mido.MetaMessage("track_name", name=midi_text(doc.get("title", "song"), 100), time=0))
     tempo_tr.append(mido.MetaMessage("time_signature", numerator=bpb, denominator=4, time=0))
     drum_tr.append(mido.MetaMessage("track_name", name="PART DRUMS", time=0))
 

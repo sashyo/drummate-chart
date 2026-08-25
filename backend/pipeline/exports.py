@@ -23,13 +23,30 @@ DIVISIONS = 24
 # MIDI
 # --------------------------------------------------------------------------
 
+def midi_text(s: str, limit: int = 120) -> str:
+    """MIDI meta text is Latin-1: keep what encodes, transliterate accents,
+    drop the rest. A title with an em-dash or a Cyrillic/Japanese name was
+    crashing the whole transcription at the very last step."""
+    import unicodedata
+    out = []
+    for ch in unicodedata.normalize("NFKD", s or ""):
+        if unicodedata.combining(ch):
+            continue
+        try:
+            ch.encode("latin-1")
+            out.append(ch)
+        except UnicodeEncodeError:
+            out.append("-" if ch in "\u2013\u2014\u2015" else "")
+    return "".join(out).strip()[:limit] or "song"
+
+
 def write_midi(score: dict, qscore, path: Path) -> Path:
     import mido
 
     mid = mido.MidiFile(ticks_per_beat=MIDI_PPQ)
     track = mido.MidiTrack()
     mid.tracks.append(track)
-    track.append(mido.MetaMessage("track_name", name=score["title"][:120], time=0))
+    track.append(mido.MetaMessage("track_name", name=midi_text(score["title"]), time=0))
 
     bpb = score["beatsPerBar"]
     scale = MIDI_PPQ // qscore.ppq

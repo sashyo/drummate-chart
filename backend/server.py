@@ -410,8 +410,12 @@ def clonehero(job_id: str):
                                   and score_json.stat().st_mtime > zpath.stat().st_mtime):
             write_package(doc, from_json(doc, []), out)
     safe = "".join(c for c in doc.get("title", "song") if c.isalnum() or c in " -_")[:60].strip() or "song"
-    return FileResponse(zpath, media_type="application/zip",
-                        filename=f"{safe} [Clone Hero].zip")
+    # read the whole file now: a rebuild (after an edit) replaces the zip
+    # atomically, and streaming a path across that replacement produced
+    # "Response content longer than Content-Length"
+    from fastapi.responses import Response
+    return Response(zpath.read_bytes(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{safe} [Clone Hero].zip"'})
 
 
 @app.get("/api/queue")
