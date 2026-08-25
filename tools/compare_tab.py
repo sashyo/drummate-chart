@@ -87,11 +87,16 @@ def main():
     def same(i, j):
         return all(tabN[i][c] == chN[j][c] for c in classes if c in pres[i])
     def score(off):
+        # align on kick+snare agreement: hats and toms are where tabs
+        # disagree among themselves, and they dragged the alignment a bar
+        # off on Enter Sandman
         n = ok = 0
+        core = [c for c in ("K", "S") if c in classes] or classes
         for i in range(len(tabN)):
             j = i + off
             if 0 <= j < len(chN):
-                n += 1; ok += same(i, j)
+                n += 1
+                ok += all(tabN[i][c] == chN[j][c] for c in core if c in pres[i])
         return ok, n
     offs = [off_fixed] if off_fixed is not None else range(-12, 13)
     best = max(offs, key=lambda o: score(o)[0])
