@@ -631,6 +631,22 @@ def _count(kind: str, request=None) -> None:
                 d["visitors"].append(h)
             if hall not in _stats["all_visitors"]:
                 _stats["all_visitors"].append(hall)
+            # where they came from: referrer host, or utm_source if the link carried one
+            src = None
+            try:
+                from urllib.parse import urlparse, parse_qs
+                qs = parse_qs(request.url.query)
+                src = (qs.get("utm_source") or [None])[0]
+                if not src:
+                    ref = request.headers.get("referer") or ""
+                    host = urlparse(ref).hostname or ""
+                    if host and not host.endswith("drummate.app"):
+                        src = host.removeprefix("www.")
+            except Exception:  # noqa: BLE001
+                src = None
+            if src:
+                refs = d.setdefault("sources", {})
+                refs[src[:40]] = refs.get(src[:40], 0) + 1
         elif kind == "submit":
             d["submissions"] += 1
             if h not in d["submitters"]:
@@ -739,7 +755,8 @@ def stats():
     now = time.time()
     with _stats_lock:
         days = {day: {"visitors": len(d["visitors"]), "submitters": len(d["submitters"]),
-                      "submissions": d["submissions"], "charts_done": d["charts_done"]}
+                      "submissions": d["submissions"], "charts_done": d["charts_done"],
+                      "sources": d.get("sources", {})}
                 for day, d in sorted(_stats["days"].items())}
         active5 = sum(1 for t in _active.values() if now - t < 300)
         active15 = sum(1 for t in _active.values() if now - t < 900)
