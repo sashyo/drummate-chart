@@ -56,13 +56,10 @@ cd drummate-chart
 ./run.sh                      # same as start.sh, without opening the browser
 ```
 
-**Links, on your own machine.** Running it locally is personal use, so you can turn link fetching on:
+**Links and YouTube are on by default when you run it yourself** — that's personal use on your own
+machine. Paste a YouTube link or a direct audio link, or drop a file.
 
-```bash
-DRUMS_LINKS=1 DRUMS_ALLOW_YOUTUBE=1 ./run.sh
-```
-
-The public site is deliberately upload-only and deletes your audio the moment the chart is done
+The public site is deliberately upload-only (`DRUMS_LINKS=0`) and deletes your audio the moment the chart is done
 (see [Terms](frontend/terms.html)). Please don't run a public instance that fetches from YouTube;
 that's a breach of their terms and, served to strangers, a distribution of other people's recordings.
 
@@ -75,9 +72,9 @@ when present. A 3 GB card is enough.
 
 | variable | default | meaning |
 |---|---|---|
-| `DRUMS_LINKS` | `1` | accept links (direct audio files). `0` = upload only |
-| `DRUMS_ALLOW_YOUTUBE` | `0` | fetch YouTube/streaming links (personal use on your own machine) |
-| `DRUMS_YOUTUBE_WITH_CONSENT` | `1` | when YouTube is off, allow it behind a rights checkbox recorded on the job |
+| `DRUMS_LINKS` | `1` | accept links. `0` = upload only (what the public site runs) |
+| `DRUMS_ALLOW_YOUTUBE` | `1` | fetch YouTube/streaming links (personal use on your own machine); `0` on a public instance |
+| `DRUMS_YOUTUBE_WITH_CONSENT` | `1` | with YouTube off, still allow it behind a rights checkbox recorded on the job |
 | `DRUMS_WORKERS` | `2` | transcriptions in parallel |
 | `DRUMS_DEVICE` | auto | `cpu` to ignore the GPU |
 | `DRUMS_SEPARATION` | auto | `htdemucs` to skip the fine-tuned model on a GPU |

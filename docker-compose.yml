@@ -7,6 +7,9 @@ services:
       - chart-data:/data
     environment:
       - DRUMS_MAX_SECONDS=600
+      # a container is usually a public instance: upload-only, no fetching
+      - DRUMS_LINKS=0
+      - DRUMS_ALLOW_YOUTUBE=0
       # - DRUMS_COOKIE_FILE=/data/cookies.txt   # if YouTube bot-checks the server IP
     restart: unless-stopped
 volumes:

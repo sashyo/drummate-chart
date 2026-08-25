@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 if ! curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
   PY=.venv/bin/python; [ -x .venv-cuda/bin/python ] && PY=.venv-cuda/bin/python
   # the public site takes uploads only; a private/local build may set DRUMS_LINKS=1 (and DRUMS_ALLOW_YOUTUBE=1)
-  DRUMS_LINKS=${DRUMS_LINKS:-0} DRUMS_YOUTUBE_WITH_CONSENT=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True setsid nohup $PY -m uvicorn backend.server:app \
+  DRUMS_LINKS=${DRUMS_LINKS:-0} DRUMS_ALLOW_YOUTUBE=${DRUMS_ALLOW_YOUTUBE:-0} DRUMS_YOUTUBE_WITH_CONSENT=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True setsid nohup $PY -m uvicorn backend.server:app \
     --host 127.0.0.1 --port 8000 >> /tmp/drummate-chart.log 2>&1 < /dev/null &
   echo "server starting on :8000"
   for i in $(seq 1 40); do sleep 0.5; curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; done

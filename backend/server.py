@@ -31,10 +31,11 @@ MAX_SECONDS = float(os.environ.get("DRUMS_MAX_SECONDS", 600))
 # The public site takes uploads only. Fetching from YouTube is a ToS breach
 # and, served to strangers, a distribution of someone else's recording;
 # a private build for personal use can turn it back on.
-# Links at all? The public deployment runs upload-only (DRUMS_LINKS=0): no
-# fetching from anywhere on the operator's behalf. A local build keeps links.
+# Defaults are for YOUR OWN machine: links and YouTube on (personal use).
+# A public deployment sets DRUMS_LINKS=0 (upload-only) - deploy/tunnel/start-chart.sh
+# and docker-compose.yml do - so it never fetches anything on the operator's behalf.
 ALLOW_LINKS = os.environ.get("DRUMS_LINKS", "1") == "1"
-ALLOW_YOUTUBE = os.environ.get("DRUMS_ALLOW_YOUTUBE", "0") == "1"
+ALLOW_YOUTUBE = os.environ.get("DRUMS_ALLOW_YOUTUBE", "1") == "1"
 # ...unless the user ticks the rights statement (recorded on the job)
 YOUTUBE_WITH_CONSENT = os.environ.get("DRUMS_YOUTUBE_WITH_CONSENT", "1") == "1"
 # Audio never lives long here: sources, stems and per-job mp3s are deleted
