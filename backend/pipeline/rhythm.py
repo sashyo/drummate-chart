@@ -237,14 +237,18 @@ def _best_octave(hits, period: float, bpb: int, ac_mass=None) -> float:
         # BETWEEN the candidate's beats and vanish from every other term, so
         # the bar shape is judged on kicks alone (Journey: 60 read for 121).
         # Strong snares off the grid must cost the candidate.
-        sn_all = np.array([h.time for h in strong if h.inst == "snare" and h.velocity >= 0.5])
-        if len(sn_all) >= 8:
-            sp = (sn_all - best_ph) / T
-            sn_on = float((np.abs(sp - np.round(sp)) < 0.15).mean())
-        else:
-            sn_on = on_grid
+        # ...and symmetrically for the kicks: a half-tempo grid can sit its
+        # beats on the snares instead, leaving every kick between the beats
+        def frac_on(inst):
+            t = np.array([h.time for h in strong if h.inst == inst and h.velocity >= 0.5])
+            if len(t) < 8:
+                return None
+            q = (t - best_ph) / T
+            return float((np.abs(q - np.round(q)) < 0.15).mean())
+        sn_on, k_on = frac_on("snare"), frac_on("kick")
+        strong_on = min(x for x in (sn_on, k_on, on_grid) if x is not None)
         return ((2.0 if populated >= 4 else 1.0 if populated == 3 else 0.0)
-                + backbeat + 2.0 * balance + 0.5 * on_grid + ONGRID_W * (sn_on - 0.8))
+                + backbeat + 2.0 * balance + 0.5 * on_grid + ONGRID_W * (strong_on - 0.8))
 
     # 4:3 / 3:4 errors are as common as octave errors (117 BPM read as 156),
     # and a fast punk song's autocorrelation can peak at a third of the tempo
