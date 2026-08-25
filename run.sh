@@ -5,6 +5,8 @@ cd "$(dirname "$0")"
 
 PORT="${1:-8000}"
 VENV=".venv"
+# a CUDA-capable environment (see docs: .venv-cuda) is preferred when present
+[ -x ".venv-cuda/bin/python" ] && VENV=".venv-cuda"
 
 if [ ! -d "$VENV" ]; then
   echo "→ creating virtualenv"

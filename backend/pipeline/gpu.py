@@ -9,13 +9,28 @@ import threading
 LOCK = threading.Lock()
 
 
+_tuned = False
+
+
 def device() -> str:
+    global _tuned
     forced = os.environ.get("DRUMS_DEVICE")
-    if forced:
-        return forced
     try:
         import torch
-        return "cuda" if torch.cuda.is_available() else "cpu"
+        if forced:
+            dev = forced
+        else:
+            dev = "cuda" if torch.cuda.is_available() else "cpu"
+        if dev == "cuda" and not _tuned:
+            # cuDNN's workspace alone failed to initialise on a 3 GB card
+            # shared with the desktop (CUDNN_STATUS_NOT_INITIALIZED); plain
+            # convolutions are a little slower and need a fraction of the
+            # memory. Measured: Demucs 21 s and DrumSep 21 s per 45 s of
+            # audio on a GTX 1060 3 GB, against 94 s and 489 s on 10 CPU
+            # threads under load.
+            torch.backends.cudnn.enabled = vram_gb() >= 6.0
+            _tuned = True
+        return dev
     except Exception:  # noqa: BLE001
         return "cpu"
 
