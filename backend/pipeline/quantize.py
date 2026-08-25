@@ -278,6 +278,15 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
         n_co = sum(1 for b in bars for x in b.notes if x.inst == "kick"
                    and any(y.inst == "snare" and y.tick == x.tick for y in b.notes))
         doubling = n_sn and n_co / n_sn >= 0.5
+        # a bar position the foot never plays with any weight, anywhere in
+        # the song, is bleed however regularly it shows (Highway to Hell's
+        # '&' of 2: 36 bars at velocity 0.09 against real kicks at 0.9)
+        by_slot: dict[int, list[float]] = {}
+        for b in bars:
+            for x in b.notes:
+                if x.inst == "kick":
+                    by_slot.setdefault(x.tick, []).append(x.velocity)
+        weak_slot = {t for t, v in by_slot.items() if len(v) >= 4 and float(np.median(v)) <= 0.12}
         for bi, bar in enumerate(bars):
             snare_ticks = {x.tick for x in bar.notes if x.inst == "snare"}
             near = set()
@@ -288,8 +297,9 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
             # a floor kick under a snare is bleed; a floor kick that repeats
             # nowhere nearby is a stray (a feathered kick pattern repeats)
             bar.notes = [x for x in bar.notes if not (
-                x.inst == "kick" and x.velocity <= 0.06
-                and ((x.tick in snare_ticks and not doubling) or x.tick not in near))]
+                x.inst == "kick" and x.velocity <= 0.12
+                and ((x.tick in snare_ticks and not doubling) or x.tick not in near
+                     or (x.tick in weak_slot and not (doubling and x.tick in snare_ticks))))]
             # ...and when the song doubles its backbeat, a snare on a beat
             # with no kick under it is the detector losing the kick in the
             # snare, not the drummer resting the foot: complete the pattern
