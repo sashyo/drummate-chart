@@ -71,11 +71,25 @@ u{text-decoration-color:var(--pink); text-underline-offset:3px}
   padding:.7rem 1.25rem; position:sticky; top:0; z-index:60;
   background:var(--bg); border-bottom:var(--border-w);
 }
-.brand{display:flex; align-items:center; gap:.6rem}
+.brand{display:flex; align-items:center; gap:.6rem; text-decoration:none; color:inherit}
+.brand:hover em{text-decoration:underline; text-decoration-thickness:3px}
 .brand .logo{width:1.6rem; height:1.6rem; display:block; filter:drop-shadow(2px 2px 0 #000)}
 .brand span{font-family:var(--f-display); font-size:1.4rem; letter-spacing:1px}
 .brand em{color:var(--pink); font-style:normal}
 .topbar-right{display:flex; align-items:center; gap:10px}
+
+.nav-cta{background:var(--yellow); color:#000; border:var(--border); box-shadow:var(--shadow-xs);
+  padding:.45rem .9rem; font-weight:700; text-transform:uppercase; font-size:.78rem; letter-spacing:1px;
+  text-decoration:none; white-space:nowrap; transition:transform .1s, box-shadow .1s}
+.nav-cta:hover{transform:translate(-2px,-2px); box-shadow:6px 6px 0 #000}
+.promo{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  margin:22px 0 6px; padding:16px 18px; background:var(--panel); border:var(--border-w); box-shadow:var(--shadow-pink)}
+.promo-text{display:flex; flex-direction:column; gap:3px}
+.promo-text b{font-family:var(--f-display); font-weight:400; font-size:1.25rem; letter-spacing:1px; text-transform:uppercase}
+.promo-text span{color:var(--muted)} .promo-text em{color:var(--pink); font-style:normal}
+.promo-btn{text-decoration:none; display:inline-block}
+@media (max-width:720px){ .nav-cta{display:none} }
+@media print{ .promo,.nav-cta{display:none !important} }
 
 /* ── controls ───────────────────────────────────────────── */
 button,.ghost,select,input,a.ghost{font:inherit; color:inherit}

@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-24d';
+const APP_BUILD='2026-08-24e';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -628,6 +628,7 @@ function grooveTips(core){
   const fills=S.score.bars.filter(b=>b.hits.some(h=>(CLASS_MAP[h.inst]||'')==='tom')).map(b=>b.number);
   if(fills.length) tips.push(`Fills live in bars <b>${fills.slice(0,6).join(', ')}${fills.length>6?'\u2026':''}</b>. Learn the groove first; add fills last.`);
   tips.push(`Loop one bar (click it; shift-click extends), turn on <b>Click</b>, and stay with a loop until you can hold it for a minute without thinking.`);
+  tips.push(`Solid? Take it to a band: <a href="https://drummate.app/?utm_source=chart&utm_medium=app&utm_campaign=teach-tip" target="_blank" rel="noopener"><b>DrumMate</b></a> turns your e-kit into a live band that follows you.`);
   return tips;
 }
 
