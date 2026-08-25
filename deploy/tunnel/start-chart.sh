@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 if ! curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
   PY=.venv/bin/python; [ -x .venv-cuda/bin/python ] && PY=.venv-cuda/bin/python
   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True setsid nohup $PY -m uvicorn backend.server:app \
-    --host 127.0.0.1 --port 8000 > /tmp/drummate-chart.log 2>&1 < /dev/null &
+    --host 127.0.0.1 --port 8000 >> /tmp/drummate-chart.log 2>&1 < /dev/null &
   echo "server starting on :8000"
   for i in $(seq 1 40); do sleep 0.5; curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; done
 fi
@@ -18,12 +18,12 @@ if [ -f "$HOME/.cloudflared/chart-token" ]; then
   # dashboard-managed tunnel (connector token pasted into that file)
   setsid nohup "$HOME/.local/bin/cloudflared" tunnel run \
     --token "$(cat "$HOME/.cloudflared/chart-token")" \
-    > /tmp/drummate-tunnel.log 2>&1 < /dev/null &
+    >> /tmp/drummate-tunnel.log 2>&1 < /dev/null &
 else
   # locally-managed tunnel (cert.pem from `cloudflared tunnel login`)
   setsid nohup "$HOME/.local/bin/cloudflared" tunnel \
     --config "$HOME/.cloudflared/chart-config.yml" run drummate-chart \
-    > /tmp/drummate-tunnel.log 2>&1 < /dev/null &
+    >> /tmp/drummate-tunnel.log 2>&1 < /dev/null &
 fi
 sleep 3
 echo "tunnel log:"; tail -4 /tmp/drummate-tunnel.log
