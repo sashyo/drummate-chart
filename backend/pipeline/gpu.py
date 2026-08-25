@@ -8,6 +8,38 @@ import threading
 
 LOCK = threading.Lock()
 
+# First come, first served. threading.Lock hands the GPU to whichever waiter
+# wakes first, so a job could be leapfrogged by every newer job; with two
+# workers that showed as one chart sitting on "Loading separation model"
+# for ten minutes. Tickets are served in order, and the waiter is told.
+_turn = threading.Condition()
+_next_ticket = 0
+_now_serving = 0
+
+
+class Turn:
+    def __init__(self, progress=None, stage: str = ""):
+        self.progress, self.stage = progress, stage
+
+    def __enter__(self):
+        global _next_ticket
+        with _turn:
+            me = _next_ticket; _next_ticket += 1
+            waited = False
+            while me != _now_serving:
+                if not waited and self.progress:
+                    self.progress(None, f"{self.stage} \u2014 waiting for the GPU (another chart is using it)")
+                waited = True
+                _turn.wait(timeout=2.0)
+        return self
+
+    def __exit__(self, *exc):
+        global _now_serving
+        with _turn:
+            _now_serving += 1
+            _turn.notify_all()
+        return False
+
 
 _tuned = False
 

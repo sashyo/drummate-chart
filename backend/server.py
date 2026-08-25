@@ -131,7 +131,8 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
         if job.id in _cancelled:
             raise Cancelled()
         with _lock:
-            job.progress = float(max(0.0, min(1.0, p)))
+            if p is not None:                      # None = message only (e.g. waiting for the GPU)
+                job.progress = float(max(0.0, min(1.0, p)))
             job.message = str(msg)
 
     try:

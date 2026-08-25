@@ -174,7 +174,7 @@ def _demucs(wav: Path, progress, model: str):
     dev = gpu.device()
     if dev == "cuda":
         try:
-            with gpu.LOCK:
+            with gpu.Turn(progress, "Separating drums from the mix"):
                 sources = run("cuda")
                 torch.cuda.empty_cache()
         except Exception as exc:  # noqa: BLE001 - VRAM is small; fall back rather than fail

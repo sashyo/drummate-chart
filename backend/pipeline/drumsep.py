@@ -112,7 +112,7 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
             from . import gpu
             if gpu.device() == "cuda":
                 try:
-                    with gpu.LOCK:
+                    with gpu.Turn(progress, "Splitting the kit"):
                         outs = sep.separate(str(wav))
                 except Exception as exc:  # noqa: BLE001 - 3 GB card: retry with short segments
                     if not gpu.is_oom(exc):
@@ -127,7 +127,7 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
                                      "batch_size": 1, "overlap": 2, "pitch_shift": 0},
                     )
                     sep.load_model(model_filename=MODEL)
-                    with gpu.LOCK:
+                    with gpu.Turn(progress, "Splitting the kit"):
                         outs = sep.separate(str(wav))
             else:
                 outs = sep.separate(str(wav))
