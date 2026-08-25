@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import os
 import numpy as np
 
 PPQ = 48                       # ticks per quarter note (divisible by 16ths and triplets)
@@ -152,7 +153,8 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
         bar.beats = int(round(b1 - b0))
 
     _cleanup(ordered, bpb)
-    _consolidate(ordered)
+    if not os.environ.get("DRUMS_NO_CONSOLIDATE"):
+        _consolidate(ordered)
     ordered = _fill_empty_bars(ordered, grid, bpb, bar_span)
     ordered = _trim_edges(ordered)
 
@@ -287,7 +289,13 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
             for x in b.notes:
                 if x.inst == "kick":
                     by_slot.setdefault(x.tick, []).append(x.velocity)
-        weak_slot = {t for t, v in by_slot.items() if len(v) >= 4 and float(np.median(v)) <= 0.12}
+        # judged by the 75th percentile: a slot the foot DOES play with weight
+        # in a quarter of the bars is a real position whose other hits were
+        # masked (the downbeat after a fill), not bleed
+        n_bars = max(1, len(bars))
+        weak_slot = {t for t, v in by_slot.items()
+                     if len(v) >= 4 and float(np.median(v)) <= 0.12
+                     and (len(v) / n_bars < 0.6 or float(np.percentile(v, 75)) <= 0.2)}
         for bi, bar in enumerate(bars):
             snare_ticks = {x.tick for x in bar.notes if x.inst == "snare"}
             near = set()
