@@ -453,6 +453,27 @@ def refine_with_hits(grid: BeatGrid, hits, progress=None) -> BeatGrid:
                 sc = np.sum((insts == "snare") & (rel == 1)) + 0.6 * np.sum((insts == "kick") & (rel == 0))
             if sc > best_s:
                 best_s, best_p = sc, p
+        if bpb == 4:
+            # The backbeat prior cannot tell beat 1 from beat 3 (snares on 2&4
+            # look like snares on 4&2): measured on 88 songs, nine had the bar
+            # line half a bar off (Fortunate Son, Feel Good Inc, Boulevard...).
+            # Break the tie with what does mark beat 1: the strongest kicks,
+            # crashes, and fills that land INTO it (toms on the beat before).
+            allpos = np.asarray(grid.to_beats(np.array([h.time for h in hits])), dtype=float)
+            allon = np.abs(allpos - np.round(allpos)) < 0.2
+            abeat = np.round(allpos[allon]).astype(int)
+            ainst = np.array([h.inst for h in hits])[allon]
+            avel = np.array([h.velocity for h in hits])[allon]
+            def half_score(p0):
+                rel = (abeat - p0) % 4
+                kick = float(avel[(ainst == "kick") & (rel == 0)].sum() - avel[(ainst == "kick") & (rel == 2)].sum())
+                crash = float(((ainst == "crash") & (rel == 0)).sum() - ((ainst == "crash") & (rel == 2)).sum())
+                fill = float((np.char.startswith(ainst.astype(str), "tom") & (rel == 3)).sum()
+                             - (np.char.startswith(ainst.astype(str), "tom") & (rel == 1)).sum())
+                return kick + 2.0 * crash + 1.0 * fill
+            alt = (best_p + 2) % 4
+            if half_score(alt) > half_score(best_p) * 1.15 + 1.0:
+                best_p = alt
         grid.downbeat_index = int(best_p)
         # (odd-bar detection from backbeat parity is disabled: measured on
         # Back in Black, a parity flip meant the grid slipping a beat across
