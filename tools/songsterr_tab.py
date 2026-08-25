@@ -30,8 +30,22 @@ def find_song(query):
         # placed after the kit... but the kit is the first one)
         drums = [i for i, t in enumerate(s.get("tracks", []))
                  if t.get("instrument") == "Drums" or str(t.get("hash", "")).startswith("drums")]
-        if drums:
+        if len(drums) == 1:
             return s["songId"], drums[0], s["artist"], s["title"]
+        if drums:
+            # several 'Drums' tracks: the kit is the one with the most kick+snare
+            # (Come Together's first one is a hand-clap track)
+            best, best_n = drums[0], -1
+            for i in drums:
+                try:
+                    tr = fetch_track(s["songId"], i)
+                except Exception:  # noqa: BLE001
+                    continue
+                n = sum(1 for m in tr["measures"] for v in m["voices"] for b in v["beats"]
+                        for nn in b.get("notes", []) if GM.get(nn.get("fret")) in ("K", "S"))
+                if n > best_n:
+                    best, best_n = i, n
+            return s["songId"], best, s["artist"], s["title"]
     raise SystemExit("no drum track found for " + query)
 
 def fetch_track(song_id, track_index):
