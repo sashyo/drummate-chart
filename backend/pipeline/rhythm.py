@@ -255,7 +255,7 @@ def _best_octave(hits, period: float, bpb: int, ac_mass=None) -> float:
     # (American Idiot: 62 read for 184)
     cands = [T for T in (period / 3, period / 2, period * 2 / 3, period * 3 / 4, period,
                          period * 4 / 3, period * 3 / 2, period * 2, period * 3)
-             if 60 / 200 <= T <= 60 / 60]
+             if 60 / 240 <= T <= 60 / 60]
     if not cands:
         return period
     # The autocorrelation is evidence too: on a live band that breathes
@@ -304,7 +304,7 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
     from scipy.signal import correlate as _xcorr
     ac = np.round(_xcorr(train, train, mode="full", method="fft"))[len(train) - 1:]
     lags = np.arange(len(ac)) * res
-    m = (lags >= 60 / 200) & (lags <= 60 / 50)
+    m = (lags >= 60 / 240) & (lags <= 60 / 50)
     if fixed_tempo:
         period = 60.0 / fixed_tempo
     else:
@@ -312,7 +312,7 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
         cand = ac[m] * np.exp(-((np.log(cand_lags) - np.log(60 / 110)) ** 2) / (2 * 0.5 ** 2))
         period = float(cand_lags[int(np.argmax(cand))])
         # octave sanity against the tracker: same tempo family, drums win
-        while period < 60 / 200:
+        while period < 60 / 240:
             period *= 2
         while period > 60 / 60:
             period /= 2
