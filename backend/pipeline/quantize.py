@@ -330,6 +330,18 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
     sv = [x.velocity for b in bars for x in b.notes if x.inst == "snare"]
     if sv and float(np.median(sv)) >= 0.3:
         slots = [{x.tick for x in b.notes if x.inst == "snare"} for b in bars]
+        # a snare position never played above the floor anywhere in the song
+        # (Billie Jean's outro blips on the 'a' of 3 and 4) is bleed however
+        # often it repeats - same test as the kicks below
+        by_slot: dict[int, list[float]] = {}
+        for b in bars:
+            for x in b.notes:
+                if x.inst == "snare":
+                    by_slot.setdefault(x.tick, []).append(x.velocity)
+        n_bars = max(1, len(bars))
+        weak_sn = {t for t, v in by_slot.items()
+                   if len(v) >= 4 and float(np.median(v)) <= 0.12
+                   and (len(v) / n_bars < 0.6 or float(np.percentile(v, 75)) <= 0.2)}
         for bi, bar in enumerate(bars):
             near = set()
             if bi:
@@ -340,8 +352,8 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
             # ...and a floor snare exactly on a kicked quarter-note beat is
             # bleed however often it repeats: ghosts live between the beats
             bar.notes = [x for x in bar.notes if not (
-                x.inst == "snare" and x.velocity <= 0.06
-                and (x.tick not in near or x.tick in kick_beats))]
+                x.inst == "snare" and x.velocity <= 0.12
+                and (x.tick in weak_sn or (x.velocity <= 0.06 and (x.tick not in near or x.tick in kick_beats))))]
 
     for bi, bar in enumerate(bars):
         bpb = bar.beats
