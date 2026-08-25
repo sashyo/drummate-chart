@@ -265,8 +265,12 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
                 near |= slots[bi - 1]
             if bi + 1 < len(bars):
                 near |= slots[bi + 1]
+            kick_beats = {x.tick for x in bar.notes if x.inst == "kick" and x.tick % PPQ == 0}
+            # ...and a floor snare exactly on a kicked quarter-note beat is
+            # bleed however often it repeats: ghosts live between the beats
             bar.notes = [x for x in bar.notes if not (
-                x.inst == "snare" and x.velocity <= 0.06 and x.tick not in near)]
+                x.inst == "snare" and x.velocity <= 0.06
+                and (x.tick not in near or x.tick in kick_beats))]
 
     for bi, bar in enumerate(bars):
         n = bar.subdivision
