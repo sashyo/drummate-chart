@@ -35,16 +35,28 @@ are under [Accuracy](#accuracy).
 
 ## Quick start (your own machine)
 
-Needs Python 3.12, `ffmpeg`, and Node.js (only if you use YouTube links: yt-dlp needs a JavaScript runtime).
+**Easiest — one file to run.** [Download the ZIP](https://github.com/sashyo/drummate-chart/archive/refs/heads/main.zip),
+unzip it, then:
+
+| | double-click | needs |
+|---|---|---|
+| Windows | `start.bat` | nothing — it installs Python (via winget) and ffmpeg itself if missing |
+| macOS | `start.command` | Python 3.10+ (python.org or Homebrew); ffmpeg via Homebrew if missing |
+| Linux | `start.sh` | Python 3.10+, ffmpeg (`apt install ffmpeg`) |
+
+The first run installs the Python packages into the app folder (5–10 minutes, ~1.5 GB) and the
+first chart downloads the separation models (~500 MB). After that it starts in seconds and opens
+<http://127.0.0.1:8000> in your browser. Close the window to stop.
+
+**Or with git**, if you'd rather:
 
 ```bash
 git clone https://github.com/sashyo/drummate-chart.git
 cd drummate-chart
-./run.sh                      # first run creates .venv and installs everything, then serves on :8000
+./run.sh                      # same as start.sh, without opening the browser
 ```
 
-Open <http://127.0.0.1:8000>, drop an audio file on the page. The first chart also downloads the
-separation models (~500 MB, cached afterwards).
+Node.js is only needed for YouTube links (yt-dlp uses it as a JavaScript runtime).
 
 **Links, on your own machine.** Running it locally is personal use, so you can turn link fetching on:
 
