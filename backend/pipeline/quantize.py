@@ -355,6 +355,23 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
                 x.inst == "snare" and x.velocity <= 0.12
                 and (x.tick in weak_sn or (x.velocity <= 0.06 and (x.tick not in near or x.tick in kick_beats))))]
 
+    # ...and the same for the cymbals: a hat position that is never struck
+    # with weight anywhere in the song and shows only here and there is a
+    # stray (snare/tom energy in the hat source), not a soft 16th pattern
+    cv = [x.velocity for b in bars for x in b.notes if x.inst in CYMS]
+    if cv and float(np.median(cv)) >= 0.3:
+        by_slot = {}
+        for b in bars:
+            for x in b.notes:
+                if x.inst in CYMS:
+                    by_slot.setdefault(x.tick, []).append(x.velocity)
+        n_bars = max(1, len(bars))
+        weak_cy = {t for t, v in by_slot.items()
+                   if len(v) >= 4 and float(np.median(v)) <= 0.12
+                   and len(v) / n_bars < 0.6 and float(np.percentile(v, 75)) <= 0.2}
+        for b in bars:
+            b.notes = [x for x in b.notes if not (x.inst in CYMS and x.velocity <= 0.12 and x.tick in weak_cy)]
+
     for bi, bar in enumerate(bars):
         bpb = bar.beats
         n = bar.subdivision
