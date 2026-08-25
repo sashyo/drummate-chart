@@ -173,7 +173,7 @@ def _song_ini(doc: dict) -> str:
         "[song]",
         f"name = {name}",
         f"artist = {artist}",
-        "charter = DrumMate Chart",
+        "charter = DrumMate Chart (chart.drummate.app)",
         f"diff_drums = {diff}",
         "pro_drums = True",
         "delay = 0",

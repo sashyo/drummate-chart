@@ -1,6 +1,6 @@
 # Deploying / migrating chart.drummate.app
 
-A runbook written so an AI assistant (Claude Code or similar) can move the
+A runbook written so an AI coding assistant (or a person) can move the
 live site to a new machine end to end. Facts, not vibes: every path,
 version and command below is what the current deployment uses.
 
@@ -24,7 +24,7 @@ version and command below is what the current deployment uses.
 
     cd ~/drum-notation && git status && git push          # nothing uncommitted
     tar czf ~/cloudflared-chart.tgz -C ~ .cloudflared/cert.pem .cloudflared/chart-config.yml \
-        .cloudflared/d34a2413-6d32-4052-bfeb-8aff320c7126.json
+        .cloudflared/<tunnel-id>.json
     # ^ the tunnel identity. Keep it private. (The other files in ~/.cloudflared belong to a different site.)
     tar czf ~/chart-data.tgz -C ~/drum-notation data/jobs data/stats.json    # charts + counter (~1 GB)
     tar czf ~/drumsep-model.tgz -C ~ .cache/drumsep                         # optional, saves a 437 MB download
@@ -78,8 +78,8 @@ default separation model; `DRUMS_SEPARATION=htdemucs` keeps the plain one.
 
 `chart-config.yml` must read (edit the home path if the user name differs):
 
-    tunnel: d34a2413-6d32-4052-bfeb-8aff320c7126
-    credentials-file: /home/<user>/.cloudflared/d34a2413-6d32-4052-bfeb-8aff320c7126.json
+    tunnel: <tunnel-id>
+    credentials-file: /home/<user>/.cloudflared/<tunnel-id>.json
     ingress:
       - hostname: chart.drummate.app
         service: http://localhost:8000

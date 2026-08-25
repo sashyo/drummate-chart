@@ -31,6 +31,9 @@ MAX_SECONDS = float(os.environ.get("DRUMS_MAX_SECONDS", 600))
 # The public site takes uploads only. Fetching from YouTube is a ToS breach
 # and, served to strangers, a distribution of someone else's recording;
 # a private build for personal use can turn it back on.
+# Links at all? The public deployment runs upload-only (DRUMS_LINKS=0): no
+# fetching from anywhere on the operator's behalf. A local build keeps links.
+ALLOW_LINKS = os.environ.get("DRUMS_LINKS", "1") == "1"
 ALLOW_YOUTUBE = os.environ.get("DRUMS_ALLOW_YOUTUBE", "0") == "1"
 # ...unless the user ticks the rights statement (recorded on the job)
 YOUTUBE_WITH_CONSENT = os.environ.get("DRUMS_YOUTUBE_WITH_CONSENT", "1") == "1"
@@ -258,6 +261,8 @@ def start(req: TranscribeRequest):
     if not req.url or not req.url.strip():
         raise HTTPException(400, "Paste a link first.")
     url = req.url.strip()
+    if not ALLOW_LINKS:
+        raise HTTPException(400, "This site works from your own audio: upload the file (drag it onto the page).")
     if not ALLOW_YOUTUBE:
         if req.rights and YOUTUBE_WITH_CONSENT:
             # the user has stated they hold the rights: the fetch proceeds and
@@ -562,7 +567,7 @@ def health():
     from .pipeline.separate import demucs_available
     from .pipeline.drumsep import available as drumsep_available
     return {"ok": True, "demucs": demucs_available(), "drumsep": drumsep_available(),
-            "maxSeconds": MAX_SECONDS, "workers": WORKERS, "youtube": ALLOW_YOUTUBE,
+            "maxSeconds": MAX_SECONDS, "workers": WORKERS, "links": ALLOW_LINKS, "youtube": ALLOW_YOUTUBE,
             "youtubeWithConsent": YOUTUBE_WITH_CONSENT,
             "audioTtlHours": AUDIO_TTL_HOURS}
 

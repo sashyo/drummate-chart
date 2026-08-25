@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26g';
+const APP_BUILD='2026-08-26h';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -1536,6 +1536,7 @@ function init(){
   window.addEventListener('pagehide', release);
   api('/api/health').then(h=>{
     if(!h) return;
+    if(h.links===false){ for(const sel of ['#link-row','#link-note','#rights-row','.or']) $(sel)?.classList.add('hidden'); return; }
     if(h.youtube){ $('#url').placeholder='https://www.youtube.com/watch?v=… or a direct audio link'; $('#link-note').textContent='A YouTube link or a direct link to an audio file.'; $('#rights-row')?.classList.add('hidden'); }
     else if(!h.youtubeWithConsent){ $('#rights-row')?.classList.add('hidden'); $('#link-note').textContent='A link straight to an audio file (.mp3 / .wav / .m4a / .ogg / .flac). YouTube and other streaming sites can\'t be used.'; }
   }).catch(()=>{});

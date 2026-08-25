@@ -47,6 +47,7 @@ def write_midi(score: dict, qscore, path: Path) -> Path:
     track = mido.MidiTrack()
     mid.tracks.append(track)
     track.append(mido.MetaMessage("track_name", name=midi_text(score["title"]), time=0))
+    track.append(mido.MetaMessage("text", text="Drum chart by DrumMate Chart - chart.drummate.app", time=0))
 
     bpb = score["beatsPerBar"]
     scale = MIDI_PPQ // qscore.ppq
@@ -118,7 +119,7 @@ def write_musicxml(score: dict, path: Path) -> Path:
     ET.SubElement(work, "work-title").text = score["title"]
     ident = ET.SubElement(root, "identification")
     enc = ET.SubElement(ident, "encoding")
-    ET.SubElement(enc, "software").text = "DrumMate Chart"
+    ET.SubElement(enc, "software").text = "DrumMate Chart - chart.drummate.app"
 
     part_list = ET.SubElement(root, "part-list")
     sp = ET.SubElement(part_list, "score-part", id="P1")
