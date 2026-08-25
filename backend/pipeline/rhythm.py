@@ -284,34 +284,50 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
     # can follow a drummer but can never creep onto the off-beat. The
     # drifted grid is only kept when it is DECISIVELY better than the
     # constant one - click-steady tracks get a rigid grid.
+    win = 12.0
+    centers = np.arange(win / 2, duration, win / 2)
+
+    def follow(T, ph):
+        offs, ts = [], []
+        prev = 0.0
+        for c in centers:
+            sel = anchors[(anchors >= c - win / 2) & (anchors < c + win / 2)]
+            if len(sel) < 8:
+                continue
+            frac = ((sel - ph) / T) % 1.0
+            # search around the CURRENT offset, not the global phase: a
+            # song a hair faster than the fitted period drifts linearly and
+            # a fixed +/-0.3 window saturated a third of a beat behind it
+            cands = prev + np.linspace(-0.3, 0.3, 61)
+            scores = [np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2).sum()
+                      for d in cands]
+            d = float(cands[int(np.argmax(scores))])
+            hold = np.exp(-((np.minimum((frac - prev) % 1.0, 1 - (frac - prev) % 1.0)) / 0.09) ** 2).sum()
+            if max(scores) < 1.15 * hold:
+                d = prev
+            d = prev + float(np.clip(d - prev, -0.12, 0.12))
+            offs.append(d); ts.append(c); prev = d
+        return np.array(ts), np.array(offs)
+
+    ts, offs = follow(T, ph)
+    # a linear trend in the offsets IS a period error: fold it into T
+    if len(ts) >= 6:
+        slope = float(np.polyfit(ts, offs, 1)[0])          # beats per second
+        if abs(slope * T) > 1e-4:
+            T = T * (1 + slope * T)
+            best = (-1.0, ph)
+            for p2 in np.linspace(0, T, 64, endpoint=False):
+                sc = _align_score(anchors, T, p2)
+                if sc > best[0]:
+                    best = (sc, p2)
+            ph = best[1]
+            ts, offs = follow(T, ph)
+
     n_beats = int(np.ceil(duration / T)) + 2
     k = np.arange(n_beats)
     base = ph + k * T
-    win = 12.0
-    centers = np.arange(win / 2, duration, win / 2)
-    offs, ts = [], []
-    prev = 0.0
-    for c in centers:
-        sel = anchors[(anchors >= c - win / 2) & (anchors < c + win / 2)]
-        if len(sel) < 8:
-            continue
-        frac = ((sel - ph) / T) % 1.0
-        cands = np.linspace(-0.3, 0.3, 61)
-        scores = [np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2).sum()
-                  for d in cands]
-        d = float(cands[int(np.argmax(scores))])
-        # Move only on decisive local evidence. A window has to prefer its
-        # best offset over HOLDING the previous one by a clear margin;
-        # otherwise a fade-out or a thin section - where every offset scores
-        # about the same - walked the phase step by step onto the off-beat
-        # (Billie Jean's outro came out shifted by an 8th).
-        hold = np.exp(-((np.minimum((frac - prev) % 1.0, 1 - (frac - prev) % 1.0)) / 0.09) ** 2).sum()
-        if max(scores) < 1.15 * hold:
-            d = prev
-        d = prev + float(np.clip(d - prev, -0.12, 0.12))
-        offs.append(d); ts.append(c); prev = d
     beat_times = base
-    if ts:
+    if len(ts):
         delta = np.interp(base, ts, offs)
         drifted = base + delta * T
         # score both grids on the anchors; keep drift only if it clearly wins
