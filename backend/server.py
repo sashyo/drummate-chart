@@ -246,9 +246,34 @@ async def upload(file: UploadFile = File(...), options: str = Form("{}")):
     return {"jobId": job.id}
 
 
+def _get(job_id: str):
+    """A job in memory, or a finished one rehydrated from disk. Finished
+    jobs are not held across restarts, but their result page must keep
+    working: a chart someone bookmarked is not allowed to 404 because the
+    server was updated."""
+    job = _jobs.get(job_id)
+    if job is not None:
+        return job
+    d = JOBS_DIR / job_id
+    if not (d / "score.json").exists():
+        return None
+    try:
+        score = json.loads((d / "score.json").read_text())
+        meta = json.loads((d / "job.json").read_text()) if (d / "job.json").exists() else {}
+    except Exception:  # noqa: BLE001
+        return None
+    job = Job(id=job_id, status="done", progress=1.0, message="Done",
+              title=score.get("title") or meta.get("title"),
+              created=float(meta.get("created") or (d / "score.json").stat().st_mtime))
+    job.score = score
+    with _lock:
+        _jobs.setdefault(job_id, job)
+    return _jobs[job_id]
+
+
 @app.get("/api/jobs/{job_id}")
 def status(job_id: str):
-    job = _jobs.get(job_id)
+    job = _get(job_id)
     if job is None:
         raise HTTPException(404, "No such job")
     return job.public()
@@ -256,7 +281,7 @@ def status(job_id: str):
 
 @app.get("/api/jobs/{job_id}/score")
 def get_score(job_id: str):
-    job = _jobs.get(job_id)
+    job = _get(job_id)
     if job is None:
         path = JOBS_DIR / job_id / "score.json"
         if path.exists():
@@ -292,7 +317,7 @@ def reexport(job_id: str, req: ReexportRequest):
     """Regenerate MIDI / MusicXML after the chart was edited in the browser."""
     from .pipeline.rebuild import reexport as _reexport
 
-    job = _jobs.get(job_id)
+    job = _get(job_id)
     out = JOBS_DIR / job_id
     doc = job.score if job and job.score else None
     if doc is None:
@@ -317,7 +342,7 @@ def regrid(job_id: str, req: RegridRequest):
     from .pipeline.rebuild import regrid as _regrid
 
     out = JOBS_DIR / job_id
-    job = _jobs.get(job_id)
+    job = _get(job_id)
     doc = job.score if job and job.score else None
     if doc is None:
         path = out / "score.json"
@@ -337,7 +362,7 @@ def clonehero(job_id: str):
     from .pipeline.rebuild import from_json
 
     out = JOBS_DIR / job_id
-    job = _jobs.get(job_id)
+    job = _get(job_id)
     doc = job.score if job and job.score else None
     if doc is None:
         path = out / "score.json"
@@ -364,7 +389,7 @@ def queue():
 
 
 def _cancel(job_id: str) -> bool:
-    job = _jobs.get(job_id)
+    job = _get(job_id)
     if job is None or job.status in ("done", "error"):
         return False
     _cancelled.add(job_id)
