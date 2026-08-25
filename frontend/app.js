@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26e';
+const APP_BUILD='2026-08-26f';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -1530,6 +1530,10 @@ async function loadNotice(){
 }
 function init(){
   loadNotice(); setInterval(loadNotice, 120000);
+  // session-only audio: tell the server when this chart is left so its
+  // drum/backing tracks are deleted right away (idle timeout covers the rest)
+  const release=()=>{ if(S.jobId && S.score){ try{ navigator.sendBeacon(`/api/jobs/${S.jobId}/release`); }catch(_){} } };
+  window.addEventListener('pagehide', release);
   api('/api/health').then(h=>{
     if(h && h.youtube){ $('#url').placeholder='https://www.youtube.com/watch?v=… or a direct audio link'; $('#link-note').textContent='A YouTube link or a direct link to an audio file.'; }
   }).catch(()=>{});
@@ -1554,7 +1558,7 @@ function init(){
     if(S.jobId){ try{ await fetch(`/api/jobs/${S.jobId}`,{method:'DELETE'}); }catch(_){} }
     showView('setup');
   };
-  $('#btn-new').onclick=()=>{ pause(); clearInterval(S.poll); showView('setup'); };
+  $('#btn-new').onclick=()=>{ pause(); clearInterval(S.poll); if(S.jobId && S.score){ fetch(`/api/jobs/${S.jobId}/release`,{method:'POST'}).catch(()=>{}); } showView('setup'); };
   $('#btn-play').onclick=togglePlay;
   on('#audio','error', ()=>{
     $('#clock').textContent='audio failed to load \u2014 press play to retry';

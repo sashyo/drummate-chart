@@ -73,6 +73,7 @@ class Job:
         d.pop("score", None)
         d["hasScore"] = self.score is not None
         d["userAudio"] = self.user_audio
+        d["audioAvailable"] = (JOBS_DIR / self.id / "drums.mp3").exists() or (JOBS_DIR / self.id / "backing.mp3").exists()
         if self.status == "queued":
             queued_ahead = [j for j in _jobs.values()
                             if j.status == "queued" and j.created < self.created]
@@ -175,6 +176,7 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
             job.status, job.progress, job.message = "done", 1.0, "Done"
         _mark(job.id, "done")
         _count("done")
+        _last_touch[job.id] = time.time()
     except Cancelled:
         _mark(job.id, "error", error="Cancelled")
         with _lock:
@@ -495,6 +497,16 @@ def clonehero(job_id: str):
                     headers={"Content-Disposition": f'attachment; filename="{safe} [Clone Hero].zip"'})
 
 
+@app.post("/api/jobs/{job_id}/release")
+def release(job_id: str):
+    """The page left the chart: drop its audio now (sendBeacon on pagehide)."""
+    job = _jobs.get(job_id)
+    if job and job.status in ("queued", "running"):
+        return {"released": 0}
+    n = _release_audio(job_id)
+    return {"released": n}
+
+
 @app.get("/api/queue")
 def queue():
     """Everything queued or running, oldest first."""
@@ -629,6 +641,28 @@ def _flush_stats() -> None:
 
 threading.Thread(target=_flush_stats, daemon=True).start()
 
+# Session-only audio: a chart's drums/backing tracks exist while someone
+# has it open. The page releases them when it is left; if the browser never
+# got to say so, SESSION_IDLE_MIN minutes without a request to that job
+# does it. AUDIO_TTL_HOURS remains the hard cap.
+SESSION_IDLE_MIN = float(os.environ.get("DRUMS_SESSION_IDLE_MIN", 20))
+_last_touch: dict[str, float] = {}
+
+
+def _release_audio(job_id: str) -> int:
+    d = JOBS_DIR / job_id
+    n = 0
+    for name in _JOB_AUDIO:
+        p = d / name
+        try:
+            if p.exists():
+                p.unlink(); n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    _last_touch.pop(job_id, None)
+    return n
+
+
 _AUDIO_EXT = (".wav", ".m4a", ".webm", ".mp4", ".opus", ".mp3", ".ogg", ".npy", ".npz", ".part")
 _JOB_AUDIO = ("drums.mp3", "backing.mp3", "ch_song.ogg", "ch_drums.ogg", "_drumstem.wav", "clonehero.zip")
 
@@ -662,14 +696,23 @@ def _purge_audio() -> int:
 
 
 def _janitor() -> None:
+    tick = 0
     while True:
         try:
-            n = _purge_audio()
-            if n:
-                print(f"janitor: removed {n} audio files older than {AUDIO_TTL_HOURS:g} h")
+            now = time.time()
+            idle = [j for j, t in list(_last_touch.items()) if now - t > SESSION_IDLE_MIN * 60]
+            released = sum(_release_audio(j) for j in idle
+                           if not any(x.status in ("queued", "running") for x in [_jobs.get(j)] if x))
+            if released:
+                print(f"janitor: released audio of {len(idle)} idle charts ({released} files)")
+            if tick % 10 == 0:
+                n = _purge_audio()
+                if n:
+                    print(f"janitor: removed {n} audio files older than {AUDIO_TTL_HOURS:g} h")
         except Exception:  # noqa: BLE001
             traceback.print_exc()
-        time.sleep(600)
+        tick += 1
+        time.sleep(60)
 
 
 threading.Thread(target=_janitor, daemon=True).start()
@@ -705,6 +748,10 @@ async def _revalidate_app_shell(request, call_next):
         _count("submit", request)
     if request.url.path == "/" or request.url.path.startswith("/api/jobs/"):
         _touch(request)
+    if request.url.path.startswith("/api/jobs/"):
+        parts = request.url.path.split("/")
+        if len(parts) > 3 and parts[3]:
+            _last_touch[parts[3]] = time.time()
     resp = await call_next(request)
     path = request.url.path
     if path == "/" or path.endswith((".js", ".css", ".html", ".svg")):
