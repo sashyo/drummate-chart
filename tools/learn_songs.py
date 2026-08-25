@@ -33,7 +33,17 @@ for s in songs:
     q = s["q"]; slug = re.sub(r"[^A-Za-z0-9]+", "_", q).strip("_")
     if slug in results and results[slug].get("exact") is not None:
         continue
-    d = out / slug; d.mkdir(exist_ok=True); t0 = time.time()
+    d = out / slug; d.mkdir(exist_ok=True)
+    # users first: wait while the live server has a job queued or running
+    while True:
+        try:
+            q = subprocess.run(["curl", "-s", "localhost:8000/api/queue"], capture_output=True, text=True, timeout=10).stdout
+            if q.strip() in ("[]", ""):
+                break
+        except Exception:  # noqa: BLE001
+            break
+        time.sleep(20)
+    t0 = time.time()
     try:
         sid, idx, artist, title = st.find_song(q)
         bars = st.to_bars(st.fetch_track(sid, idx))
