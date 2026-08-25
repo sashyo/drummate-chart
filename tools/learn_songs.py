@@ -37,10 +37,10 @@ for s in songs:
     # users first: wait while the live server has a job queued or running
     while True:
         try:
-            q = subprocess.run(["curl", "-s", "localhost:8000/api/queue"], capture_output=True, text=True, timeout=10).stdout
+            live = subprocess.run(["curl", "-s", "localhost:8000/api/queue"], capture_output=True, text=True, timeout=10).stdout
             # run alongside at most one live job (the GPU interleaves two
             # processes fine; three is where users start to feel it)
-            if not q.strip() or len(json.loads(q)) < 2:
+            if not live.strip() or len(json.loads(live)) < 2:
                 break
         except Exception:  # noqa: BLE001
             break
