@@ -304,7 +304,9 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
                         time=bar.start_time + span * sl / nslots))
                 # a run at the 8th pulse: stray, weaker hats on odd 16ths are
                 # doubles or bleed, not playing
-                if pulse == PPQ // 2 and len(on) >= 0.75 * len(cym):
+                # (a bar of true 16th hats has only half its cymbals on the
+                # 8th pulse and is left alone; 8 hats + 3 strays is 73%)
+                if pulse == PPQ // 2 and len(on) >= 0.6 * len(cym):
                     bar.notes = [x for x in bar.notes if not (
                         x.inst in CYMS and x.tick % pulse != 0 and x.velocity < 0.6 * vel)]
                 break
