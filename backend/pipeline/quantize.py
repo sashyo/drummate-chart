@@ -240,7 +240,18 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
     (An earlier "echo removal" rule was measured to eat real alternating-
     velocity 16ths and was dropped; same-tick doubles are merged upstream.)
     """
-    for bar in bars:
+    # A kick at the velocity floor (below its own local 10th percentile) that
+    # sits exactly under a snare stroke is snare bleeding into the kick stem,
+    # not a foot: nobody notates a kick ghost. Only when the song's kicks are
+    # otherwise strong - a genuinely soft kick line keeps its notes.
+    kv = [x.velocity for b in bars for x in b.notes if x.inst == "kick"]
+    if kv and float(np.median(kv)) >= 0.3:
+        for bar in bars:
+            snare_ticks = {x.tick for x in bar.notes if x.inst == "snare"}
+            bar.notes = [x for x in bar.notes if not (
+                x.inst == "kick" and x.velocity <= 0.06 and x.tick in snare_ticks)]
+
+    for bi, bar in enumerate(bars):
         n = bar.subdivision
         slot = PPQ // n
         cym = [x for x in bar.notes if x.inst in CYMS]
@@ -248,6 +259,8 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
             continue
         span = bar.end_time - bar.start_time
         vel = float(np.median([x.velocity for x in cym]))
+        prev_cym = [x.tick for x in bars[bi - 1].notes if x.inst in CYMS] if bi else []
+        next_cym = [x.tick for x in bars[bi + 1].notes if x.inst in CYMS] if bi + 1 < len(bars) else []
         # Judge the run at the hats' OWN pulse. An 8th-note hat line fills
         # only half of a 16th grid, so a 16th-only test never repaired the
         # most common groove in rock.
@@ -256,8 +269,18 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
             on = [x for x in cym if x.tick % pulse == 0]
             have = {x.tick // pulse for x in on}
             if nslots and len(have) / nslots >= 0.75:
-                for sl in range(1, nslots - 1):
-                    if sl in have or (sl - 1) not in have or (sl + 1) not in have:
+                # A run does not stop at the bar line: the neighbour on the
+                # far side of it is the next bar's downbeat / the previous
+                # bar's last stroke. The last up-beat of a bar is the softest
+                # stroke in many grooves and was the hole this never closed.
+                last = PPQ * bpb - pulse
+                ext = set(have)
+                if next_cym and 0 in next_cym:
+                    ext.add(nslots)
+                if prev_cym and last in prev_cym:
+                    ext.add(-1)
+                for sl in range(0, nslots):
+                    if sl in have or (sl - 1) not in ext or (sl + 1) not in ext:
                         continue
                     bar.notes.append(QNote(
                         tick=sl * pulse, inst="hihat", velocity=vel,

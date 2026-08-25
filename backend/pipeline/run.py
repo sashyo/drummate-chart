@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import exports, fetch, onsets, quantize, rhythm, score, separate
 
-ENGINE = 3   # bump when the grid/detector changes enough that old charts should be re-run
+ENGINE = 4   # bump when the grid/detector changes enough that old charts should be re-run
 
 
 @dataclass
@@ -93,6 +93,17 @@ def transcribe(url: str | None, out_dir: Path, cache_dir: Path,
     if det is None:
         det = onsets.detect(stem.mono, progress=progress, sensitivity=opts.sensitivity,
                             detect_toms=opts.detect_toms, cymbal_detail=opts.cymbal_detail)
+
+    # Keep the detection so the grid/quantiser can be re-run without
+    # separating again (tools/requant.py).
+    try:
+        import pickle
+        (out_dir / "_analysis.pkl").write_bytes(pickle.dumps({
+            "hits": det.hits, "duration": det.duration, "debug": det.debug,
+            "tracked": grid, "beats_per_bar": opts.beats_per_bar,
+            "fixed_tempo": opts.fixed_tempo, "opts": vars(opts)}))
+    except Exception:  # noqa: BLE001 - a debugging aid must never fail a job
+        pass
 
     # The drums set the grid. The tracked grid is only a hint / fallback.
     dg = rhythm.grid_from_drums(det.hits, det.duration, opts.beats_per_bar,

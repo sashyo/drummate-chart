@@ -225,7 +225,10 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
     res = 0.005
     train = np.zeros(int(duration / res) + 2)
     train[np.clip((anchors / res).astype(int), 0, len(train) - 1)] = 1.0
-    ac = np.correlate(train, train, "full")[len(train) - 1:]
+    # FFT correlation: numpy's np.correlate is the direct O(N^2) product and
+    # took over an hour of CPU on a 4-minute song (N = 50k bins at 5 ms).
+    from scipy.signal import correlate as _xcorr
+    ac = np.round(_xcorr(train, train, mode="full", method="fft"))[len(train) - 1:]
     lags = np.arange(len(ac)) * res
     m = (lags >= 60 / 200) & (lags <= 60 / 50)
     if fixed_tempo:
@@ -276,6 +279,14 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
         scores = [np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2).sum()
                   for d in cands]
         d = float(cands[int(np.argmax(scores))])
+        # Move only on decisive local evidence. A window has to prefer its
+        # best offset over HOLDING the previous one by a clear margin;
+        # otherwise a fade-out or a thin section - where every offset scores
+        # about the same - walked the phase step by step onto the off-beat
+        # (Billie Jean's outro came out shifted by an 8th).
+        hold = np.exp(-((np.minimum((frac - prev) % 1.0, 1 - (frac - prev) % 1.0)) / 0.09) ** 2).sum()
+        if max(scores) < 1.15 * hold:
+            d = prev
         d = prev + float(np.clip(d - prev, -0.12, 0.12))
         offs.append(d); ts.append(c); prev = d
     beat_times = base
