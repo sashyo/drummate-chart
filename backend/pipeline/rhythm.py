@@ -140,6 +140,24 @@ def _locked_grid(onset_env: np.ndarray, bpm: float, duration: float) -> np.ndarr
     return np.arange(best_phase, max(duration, best_phase + 4 * period), period)
 
 
+def _anchor_hits(hits, min_vel: float = 0.2) -> list:
+    strong = [h for h in hits if h.inst in ("kick", "snare") and h.velocity >= min_vel]
+    if len(strong) >= 16:
+        return sorted(strong, key=lambda h: h.time)
+    return sorted((h for h in hits if h.inst in ("kick", "snare")), key=lambda h: h.time)
+
+
+def _anchor_times(hits, min_vel: float = 0.2) -> np.ndarray:
+    """Kick/snare times that get a vote on the grid. Floor-velocity hits are
+    bleed (a quarter of all kick+snare hits on Billie Jean) and, counted
+    equally, pulled the phase follower a third of a beat off in the outro.
+    Fall back to every hit when a song has too few strong ones."""
+    strong = sorted(h.time for h in hits if h.inst in ("kick", "snare") and h.velocity >= min_vel)
+    if len(strong) >= 16:
+        return np.array(strong)
+    return np.array(sorted(h.time for h in hits if h.inst in ("kick", "snare")))
+
+
 def _align_score(times: np.ndarray, period: float, phase: float, sigma: float = 0.09) -> float:
     frac = ((times - phase) / period) % 1.0
     d = np.minimum(frac, 1.0 - frac)
@@ -155,8 +173,11 @@ def _best_octave(hits, period: float, bpb: int) -> float:
     half the beat classes are empty. Autocorrelation alone cannot tell
     these apart - a drum & bass track at 172 reads as 86 with a clean grid.
     """
-    kick = np.array([h.time for h in hits if h.inst == "kick"])
-    snare = np.array([h.time for h in hits if h.inst == "snare"])
+    strong = [h for h in hits if h.inst in ("kick", "snare") and h.velocity >= 0.2]
+    if len(strong) < 16:
+        strong = [h for h in hits if h.inst in ("kick", "snare")]
+    kick = np.array([h.time for h in strong if h.inst == "kick"])
+    snare = np.array([h.time for h in strong if h.inst == "snare"])
     anchors = np.concatenate([kick, snare])
     if len(anchors) < 16 or bpb != 4:
         return period
@@ -217,7 +238,7 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
     period, a joint period/phase search aligns the grid, and a windowed
     phase track follows slow drift.
     """
-    anchors = np.array(sorted(h.time for h in hits if h.inst in ("kick", "snare")))
+    anchors = _anchor_times(hits)
     if len(anchors) < 16:
         return None
 
@@ -323,7 +344,8 @@ def refine_with_hits(grid: BeatGrid, hits, progress=None) -> BeatGrid:
     the grid (fraction of a beat) to maximise on-beat kick+snare mass, then
     choose the bar phase where snares sit on 2 & 4 and kicks on 1 & 3.
     """
-    anchors = np.array([h.time for h in hits if h.inst in ("kick", "snare")])
+    voters = _anchor_hits(hits)
+    anchors = np.array([h.time for h in voters])
     if len(anchors) < 8 or len(grid.beat_times) < 4:
         return grid
 
@@ -352,7 +374,7 @@ def refine_with_hits(grid: BeatGrid, hits, progress=None) -> BeatGrid:
     pos = np.asarray(grid.to_beats(anchors), dtype=float)
     on = np.abs(pos - np.round(pos)) < 0.15
     beat_idx = np.round(pos[on]).astype(int)
-    insts = np.array([h.inst for h in hits if h.inst in ("kick", "snare")])[on]
+    insts = np.array([h.inst for h in voters])[on]
     if bpb in (4, 2) and len(beat_idx) >= 8:
         best_p, best_s = 0, -1e9
         for p in range(bpb):

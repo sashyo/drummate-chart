@@ -26,6 +26,9 @@ if a.npy:
     det = onsets.detect_from_stems(stems, sensitivity=1.0, detect_toms=True,
                                    cymbal_detail=1.0, mono=mono); lap("onsets")
     bpb, fixed = a.bpb, None
+    (out / "_analysis.pkl").write_bytes(pickle.dumps({
+        "hits": det.hits, "duration": det.duration, "debug": det.debug,
+        "tracked": tracked, "beats_per_bar": bpb, "fixed_tempo": None}))
 else:
     d = pickle.loads((out / "_analysis.pkl").read_bytes())
     det = onsets.Detection(d["hits"], d["duration"], d["debug"])
