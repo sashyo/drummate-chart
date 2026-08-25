@@ -35,8 +35,8 @@ are under [Accuracy](#accuracy).
 
 ## Quick start (your own machine)
 
-**Easiest — one file to run.** [Download the ZIP](https://github.com/sashyo/drummate-chart/archive/refs/heads/main.zip),
-unzip it, then:
+**Easiest — one file to run.** Download the ZIP from the
+[latest release](https://github.com/sashyo/drummate-chart/releases/latest), unzip it, then:
 
 | | double-click | needs |
 |---|---|---|
