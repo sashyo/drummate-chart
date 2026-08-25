@@ -8,7 +8,7 @@ kit: you drum, the band follows. This is the sibling for learning the song first
 
 ![DrumMate Chart](docs/screenshot.png)
 
-Live: **https://chart.drummate.app** (free, upload your own audio).
+Live: **https://chart.drummate.app** (free, upload your own audio). Open source under the [MIT License](LICENSE).
 
 ## What it does
 
@@ -116,6 +116,11 @@ and what should be there. Every rule in `quantize.py` came from exactly that.
 [DEPLOY.md](DEPLOY.md) is the full runbook for a public instance behind a Cloudflare Tunnel:
 environments, models, data, verification, cutover and autostart. `Dockerfile` / `docker-compose.yml`
 build a CPU-only container.
+
+## License
+
+[MIT](LICENSE) — use it, change it, ship it; keep the notice. The separation models are third-party
+(see Credits) and carry their own terms.
 
 ## Credits
 
