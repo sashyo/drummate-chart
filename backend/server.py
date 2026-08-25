@@ -147,6 +147,7 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
             job.title = doc.get("title")
             job.status, job.progress, job.message = "done", 1.0, "Done"
         _mark(job.id, "done")
+        _count("done")
     except Cancelled:
         _mark(job.id, "error")
         with _lock:
@@ -466,10 +467,95 @@ def health():
             "maxSeconds": MAX_SECONDS, "workers": WORKERS}
 
 
+# --------------------------------------------------------------------------
+# Usage counter: unique visitors and submissions per day. IPs are hashed with
+# a per-day salt and only the counts leave this file - nothing identifies a
+# person, and the raw address is never written anywhere.
+# --------------------------------------------------------------------------
+STATS_PATH = DATA / "stats.json"
+_stats_lock = threading.Lock()
+_stats = {"days": {}, "all_visitors": [], "all_submitters": []}
+try:
+    _stats.update(json.loads(STATS_PATH.read_text()))
+except Exception:  # noqa: BLE001
+    pass
+_stats_dirty = False
+
+
+def _client_ip(request) -> str:
+    return (request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else "?"))
+
+
+def _count(kind: str, request=None) -> None:
+    global _stats_dirty
+    import hashlib
+    day = time.strftime("%Y-%m-%d")
+    if kind == "done":
+        with _stats_lock:
+            d = _stats["days"].setdefault(day, {"visitors": [], "submitters": [], "submissions": 0, "charts_done": 0})
+            d["charts_done"] += 1
+            _stats_dirty = True
+        return
+    ip = _client_ip(request)
+    if ip in ("127.0.0.1", "::1", "?"):
+        return
+    h = hashlib.sha256(f"{day}|{ip}|drummate".encode()).hexdigest()[:16]
+    hall = hashlib.sha256(f"all|{ip}|drummate".encode()).hexdigest()[:16]
+    with _stats_lock:
+        d = _stats["days"].setdefault(day, {"visitors": [], "submitters": [], "submissions": 0, "charts_done": 0})
+        if kind == "visit":
+            if h not in d["visitors"]:
+                d["visitors"].append(h)
+            if hall not in _stats["all_visitors"]:
+                _stats["all_visitors"].append(hall)
+        elif kind == "submit":
+            d["submissions"] += 1
+            if h not in d["submitters"]:
+                d["submitters"].append(h)
+            if hall not in _stats["all_submitters"]:
+                _stats["all_submitters"].append(hall)
+        elif kind == "done":
+            d["charts_done"] += 1
+        _stats_dirty = True
+
+
+def _flush_stats() -> None:
+    global _stats_dirty
+    while True:
+        time.sleep(30)
+        if _stats_dirty:
+            with _stats_lock:
+                try:
+                    STATS_PATH.write_text(json.dumps(_stats))
+                    _stats_dirty = False
+                except Exception:  # noqa: BLE001
+                    pass
+
+
+threading.Thread(target=_flush_stats, daemon=True).start()
+
+
+@app.get("/api/stats")
+def stats():
+    with _stats_lock:
+        days = {day: {"visitors": len(d["visitors"]), "submitters": len(d["submitters"]),
+                      "submissions": d["submissions"], "charts_done": d["charts_done"]}
+                for day, d in sorted(_stats["days"].items())}
+        return {"days": days, "allTime": {"visitors": len(_stats["all_visitors"]),
+                                          "submitters": len(_stats["all_submitters"]),
+                                          "submissions": sum(d["submissions"] for d in _stats["days"].values()),
+                                          "charts_done": sum(d["charts_done"] for d in _stats["days"].values())}}
+
+
 @app.middleware("http")
 async def _revalidate_app_shell(request, call_next):
     """The app shell must revalidate on every load (ETag makes it a cheap 304),
     otherwise browsers heuristically cache app.js and users run stale code."""
+    if request.method == "GET" and request.url.path == "/":
+        _count("visit", request)
+    elif request.method == "POST" and request.url.path == "/api/transcribe":
+        _count("submit", request)
     resp = await call_next(request)
     path = request.url.path
     if path == "/" or path.endswith((".js", ".css", ".html", ".svg")):
