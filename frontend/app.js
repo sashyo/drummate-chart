@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26a';
+const APP_BUILD='2026-08-26b';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -1532,7 +1532,8 @@ function init(){
   $('#url').addEventListener('keydown', e=>{ if(e.key==='Enter') startJob(); });
   $('#file').addEventListener('change', e=>{ if(e.target.files[0]) startUpload(e.target.files[0]); });
   const drop=$('#filedrop');
-  drop.addEventListener('click', ()=>$('#file').click());
+  // the drop zone is a <label> around the input: the browser already opens
+  // the picker on click; a second .click() here opened it twice every time
   ['dragenter','dragover'].forEach(t=>drop.addEventListener(t, e=>{
     e.preventDefault(); drop.classList.add('drag'); }));
   ['dragleave','drop'].forEach(t=>drop.addEventListener(t, e=>{

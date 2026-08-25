@@ -149,11 +149,11 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
         _mark(job.id, "done")
         _count("done")
     except Cancelled:
-        _mark(job.id, "error")
+        _mark(job.id, "error", error="Cancelled")
         with _lock:
             job.status, job.error, job.message = "error", "Cancelled", "Cancelled"
     except FetchError as exc:
-        _mark(job.id, "error")
+        _mark(job.id, "error", error=str(exc))
         with _lock:
             job.status, job.error, job.message = "error", str(exc), "Failed"
     except Exception as exc:  # noqa: BLE001
