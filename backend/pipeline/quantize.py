@@ -290,6 +290,18 @@ def _cleanup(bars: list[QBar], bpb_default: int) -> None:
             bar.notes = [x for x in bar.notes if not (
                 x.inst == "kick" and x.velocity <= 0.06
                 and ((x.tick in snare_ticks and not doubling) or x.tick not in near))]
+            # ...and when the song doubles its backbeat, a snare on a beat
+            # with no kick under it is the detector losing the kick in the
+            # snare, not the drummer resting the foot: complete the pattern
+            if doubling:
+                have = {x.tick for x in bar.notes if x.inst == "kick"}
+                kvel = float(np.median([x.velocity for b in bars for x in b.notes
+                                        if x.inst == "kick" and any(
+                                            y.inst == "snare" and y.tick == x.tick for y in b.notes)] or [0.3]))
+                for sn in [x for x in bar.notes if x.inst == "snare" and x.tick % PPQ == 0
+                           and x.tick not in have and not x.ghost]:
+                    bar.notes.append(QNote(tick=sn.tick, inst="kick", velocity=kvel, time=sn.time))
+                bar.notes.sort(key=lambda x: (x.tick, x.inst))
 
     # A floor-velocity snare (below its own local 10th percentile) is either
     # a ghost note or bleed. Ghost grooves REPEAT - the same slot carries a
