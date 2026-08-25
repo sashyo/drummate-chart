@@ -34,7 +34,7 @@ TARGETS = ["K", "S", "T"]
 def stems_for(duration: float):
     n = int(round(duration * SR))
     c = []
-    for f in glob.glob(str(ROOT / "data/cache/drumsep_*.npz")):
+    for f in glob.glob(str(ROOT / "data/research-cache/drumsep_*.npz")):
         try:
             if abs(np.load(f)["kick"].shape[0] - n) < SR:
                 c.append(f)

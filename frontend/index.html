@@ -32,18 +32,20 @@
   </div>
 
   <div class="card">
-    <span class="sticker">paste a link &rarr;</span>
-    <div class="row">
+    <span class="sticker">upload your audio &rarr;</span>
+    <label class="filedrop filedrop-main" id="filedrop">
+      <input id="file" type="file" accept="audio/*,video/*" hidden>
+      <span><b>Drop an audio file here</b>, or <u>browse</u> &mdash; mp3, wav, m4a, flac, ogg</span>
+      <small class="muted">Your audio is used only to make your chart and is deleted from the server within 24 hours.</small>
+    </label>
+
+    <div class="or"><span>or paste a direct link to an audio file</span></div>
+    <div class="row" id="link-row">
       <input id="url" type="url" spellcheck="false"
-             placeholder="https://www.youtube.com/watch?v=…" autocomplete="off">
+             placeholder="https://…/song.mp3" autocomplete="off">
       <button id="btn-go" class="primary">Transcribe</button>
     </div>
-
-    <div class="or"><span>or</span></div>
-    <label class="filedrop" id="filedrop">
-      <input id="file" type="file" accept="audio/*,video/*" hidden>
-      <span>Drop an audio file here, or <u>browse</u></span>
-    </label>
+    <p class="small muted" id="link-note">A link straight to the file (.mp3 / .wav / .m4a / .ogg / .flac). YouTube and other streaming sites can't be used.</p>
 
     <details class="opts">
       <summary>Analysis options</summary>
@@ -157,8 +159,7 @@
       <a id="dl-ch" class="ghost" download>Clone Hero</a>
       <a id="dl-midi" class="ghost" download>MIDI</a>
       <a id="dl-xml" class="ghost" download>MusicXML</a>
-      <a id="dl-drums" class="ghost" download>Drums only (MP3)</a>
-      <a id="dl-drumless" class="ghost" download>Drumless (MP3)</a>
+
       <button id="btn-print" class="ghost">Print</button>
     </div>
   </div>
@@ -213,7 +214,7 @@
     </div>
     <a class="primary promo-btn" href="https://drummate.app/?utm_source=chart&utm_medium=app&utm_campaign=chart-footer" target="_blank" rel="noopener">Try DrumMate &rarr;</a>
   </aside>
-  <p class="footnote muted small">
+  <p class="footnote muted small"><a href="terms.html">Terms &amp; takedown</a> &middot; 
     <b>Loop:</b> press <b>Loop</b>, then tap the first bar and the last bar (works with a
     mouse or a finger). Shortcut: click a bar, then shift-click the last one. The looped
     bars turn yellow. <b>Simple</b> reduces the

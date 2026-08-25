@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26b';
+const APP_BUILD='2026-08-26c';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -834,16 +834,6 @@ function openScore(score){
   $('#dl-ch').href=`/api/jobs/${S.jobId}/clonehero`;
   $('#dl-midi').href=`/api/jobs/${S.jobId}/files/drums.mid`;
   $('#dl-xml').href=`/api/jobs/${S.jobId}/files/drums.musicxml`;
-  // the separated audio: the drums alone, and the song with the drums removed
-  const safe=(S.score.title||'song').replace(/[^\w \-()]+/g,'').trim().slice(0,60)||'song';
-  const audio=S.score.audio||{};
-  for(const [id,file,label] of [['#dl-drums','drums.mp3','drums only'],['#dl-drumless','backing.mp3','drumless']]){
-    const a=$(id); if(!a) continue;
-    const have=Object.values(audio).includes(file);
-    a.classList.toggle('hidden', !have);
-    a.href=`/api/jobs/${S.jobId}/files/${file}?dl=${encodeURIComponent(safe+' - '+label+'.mp3')}`;
-    a.setAttribute('download', safe+' - '+label+'.mp3');
-  }
 
   const have=score.audio||{};
   setSegEnabled('drums', !!have.drums);
@@ -1528,6 +1518,9 @@ async function loadNotice(){
 }
 function init(){
   loadNotice(); setInterval(loadNotice, 120000);
+  api('/api/health').then(h=>{
+    if(h && h.youtube){ $('#url').placeholder='https://www.youtube.com/watch?v=… or a direct audio link'; $('#link-note').textContent='A YouTube link or a direct link to an audio file.'; }
+  }).catch(()=>{});
   $('#btn-go').onclick=startJob;
   $('#url').addEventListener('keydown', e=>{ if(e.key==='Enter') startJob(); });
   $('#file').addEventListener('change', e=>{ if(e.target.files[0]) startUpload(e.target.files[0]); });

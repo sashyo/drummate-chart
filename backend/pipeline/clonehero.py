@@ -212,17 +212,17 @@ def write_package(doc: dict, qscore, job_dir: Path) -> Path:
     safe = "".join(c for c in title if c.isalnum() or c in " -_()[]").strip() or "song"
     zpath = job_dir / "clonehero.zip"
     tmp_zip = job_dir / f"clonehero-{notes.stem[6:]}.zip"
-    backing = _to_ogg(job_dir / "backing.mp3", job_dir / "ch_song.ogg") \
-        if (job_dir / "backing.mp3").exists() else None
-    drums = _to_ogg(job_dir / "drums.mp3", job_dir / "ch_drums.ogg") \
-        if (job_dir / "drums.mp3").exists() else None
+    # Chart only. The package used to carry the separated stems as song.ogg /
+    # drums.ogg - that is redistributing the recording. Like most Clone Hero
+    # charts, the player adds their own song.ogg to the folder.
     with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(notes, f"{safe}/notes.mid")
         z.writestr(f"{safe}/song.ini", _song_ini(doc))
-        if backing:
-            z.write(backing, f"{safe}/song.ogg")
-        if drums:
-            z.write(drums, f"{safe}/drums.ogg" if backing else f"{safe}/song.ogg")
+        z.writestr(f"{safe}/README.txt",
+                   "DrumMate Chart - Clone Hero package\n\n"
+                   "This folder holds the drum chart (notes.mid, Pro Drums) and song.ini.\n"
+                   "Add the audio yourself: put the song as song.ogg (or song.mp3) in this folder,\n"
+                   "then drop the folder into your Clone Hero Songs directory and rescan.\n")
     notes.unlink(missing_ok=True)
     tmp_zip.replace(zpath)                      # atomic: readers see old or new, never half
     return zpath

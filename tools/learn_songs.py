@@ -51,7 +51,7 @@ for s in songs:
         bars = st.to_bars(st.fetch_track(sid, idx))
         json.dump({"artist": artist, "title": title, "songId": sid, "track": idx, "bars": bars}, open(d / "tab.json", "w"))
         url = s.get("yt") or yt_url(q)
-        doc = transcribe(url, d, ROOT / "data/cache", Options(render_audio=False))
+        doc = transcribe(url, d, ROOT / "data/research-cache", Options(render_audio=False))
         cmp = subprocess.run([sys.executable, str(ROOT / "tools/compare_tab.py"), str(d / "score.json"), str(d / "tab.json"), "--show", "0"],
                              capture_output=True, text=True).stdout
         m = re.search(r"exactly matching the tab: (\d+)/(\d+)", cmp)

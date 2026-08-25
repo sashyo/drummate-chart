@@ -28,6 +28,13 @@ CACHE_DIR = DATA / "cache"
 FRONTEND = ROOT / "frontend"
 
 MAX_SECONDS = float(os.environ.get("DRUMS_MAX_SECONDS", 600))
+# The public site takes uploads only. Fetching from YouTube is a ToS breach
+# and, served to strangers, a distribution of someone else's recording;
+# a private build for personal use can turn it back on.
+ALLOW_YOUTUBE = os.environ.get("DRUMS_ALLOW_YOUTUBE", "0") == "1"
+# Audio never lives long here: sources, stems and per-job mp3s are deleted
+# after this many hours. Charts, MIDI and MusicXML are kept.
+AUDIO_TTL_HOURS = float(os.environ.get("DRUMS_AUDIO_TTL_HOURS", 24))
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -224,6 +231,8 @@ def start(req: TranscribeRequest):
     if not req.url or not req.url.strip():
         raise HTTPException(400, "Paste a link first.")
     url = req.url.strip()
+    if not ALLOW_YOUTUBE:
+        _check_audio_link(url)
     # the same link queued twice (double-click, refresh) should not wait
     # behind itself - hand back the pending job instead
     sig = json.dumps(req.model_dump(), sort_keys=True)
@@ -256,6 +265,41 @@ async def upload(file: UploadFile = File(...), options: str = Form("{}")):
     _manifest(job.id, req, None, dest, title)
     _submit(job, None, _opts(req), dest, title)
     return {"jobId": job.id}
+
+
+_STREAMING_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com", "soundcloud.com",
+                    "spotify.com", "tiktok.com", "instagram.com", "facebook.com", "fb.watch",
+                    "dailymotion.com", "twitch.tv", "bandcamp.com", "deezer.com", "apple.com", "tidal.com")
+_AUDIO_LINK_EXT = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".flac", ".aiff", ".aif", ".wma", ".mp4", ".webm")
+
+
+def _check_audio_link(url: str) -> None:
+    """The public site fetches DIRECT links to audio files only - not
+    YouTube or other streaming sites (their terms forbid it, and serving
+    the result to strangers is distributing someone else's recording)."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    host = (u.hostname or "").lower()
+    if u.scheme not in ("http", "https") or not host:
+        raise HTTPException(400, "That doesn't look like a link. Paste a direct link to an audio file "
+                                 "(ending in .mp3, .wav, .m4a, .ogg, .flac…) or upload the file.")
+    if any(host == h or host.endswith("." + h) for h in _STREAMING_HOSTS):
+        raise HTTPException(403, "YouTube and other streaming sites can't be used here. Paste a direct link "
+                                 "to an audio file you have the rights to, or upload the file.")
+    if u.path.lower().endswith(_AUDIO_LINK_EXT):
+        return
+    # no telling extension: ask the server what it is
+    try:
+        import urllib.request
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            ctype = (r.headers.get("Content-Type") or "").lower()
+        if ctype.startswith(("audio/", "video/")) or "octet-stream" in ctype:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    raise HTTPException(400, "That link isn't a direct audio file (a share page, not the file itself). "
+                             "Use a link that ends in .mp3/.wav/.m4a/.ogg/.flac, or upload the file.")
 
 
 def _finished_with_sig(sig: str) -> str | None:
@@ -343,7 +387,7 @@ def get_file(job_id: str, name: str, dl: str | None = None):
              "json": "application/json"}[name.rsplit(".", 1)[1]]
     # ?dl=<name> downloads under a song-named file ("Title - drumless.mp3")
     # instead of the internal backing.mp3; playback (no dl) streams as before
-    if dl:
+    if dl and not name.endswith(".mp3"):
         safe = "".join(c for c in dl if c.isalnum() or c in " -_().")[:80].strip()
         return FileResponse(path, media_type=media, filename=safe or name)
     return FileResponse(path, media_type=media)
@@ -470,7 +514,8 @@ def health():
     from .pipeline.separate import demucs_available
     from .pipeline.drumsep import available as drumsep_available
     return {"ok": True, "demucs": demucs_available(), "drumsep": drumsep_available(),
-            "maxSeconds": MAX_SECONDS, "workers": WORKERS}
+            "maxSeconds": MAX_SECONDS, "workers": WORKERS, "youtube": ALLOW_YOUTUBE,
+            "audioTtlHours": AUDIO_TTL_HOURS}
 
 
 # --------------------------------------------------------------------------
@@ -557,6 +602,51 @@ def _flush_stats() -> None:
 
 
 threading.Thread(target=_flush_stats, daemon=True).start()
+
+_AUDIO_EXT = (".wav", ".m4a", ".webm", ".mp4", ".opus", ".mp3", ".ogg", ".npy", ".npz", ".part")
+_JOB_AUDIO = ("drums.mp3", "backing.mp3", "ch_song.ogg", "ch_drums.ogg", "_drumstem.wav", "clonehero.zip")
+
+
+def _purge_audio() -> int:
+    """Delete audio older than AUDIO_TTL_HOURS: fetched/uploaded sources and
+    separation caches in the cache dir, stems and mp3s in job dirs. The chart
+    (score.json), MIDI and MusicXML stay so old links keep opening."""
+    cutoff = time.time() - AUDIO_TTL_HOURS * 3600
+    n = 0
+    for p in list(CACHE_DIR.glob("*")):
+        try:
+            if p.is_file() and p.suffix.lower() in _AUDIO_EXT and p.stat().st_mtime < cutoff:
+                p.unlink(); n += 1
+        except Exception:  # noqa: BLE001
+            pass
+    for d in list(JOBS_DIR.glob("*")):
+        for name in _JOB_AUDIO:
+            p = d / name
+            try:
+                if p.exists() and p.stat().st_mtime < cutoff:
+                    p.unlink(); n += 1
+            except Exception:  # noqa: BLE001
+                pass
+        for p in list(d.glob("notes-*.mid")) + list(d.glob("clonehero-*.zip")):
+            try:
+                p.unlink(); n += 1
+            except Exception:  # noqa: BLE001
+                pass
+    return n
+
+
+def _janitor() -> None:
+    while True:
+        try:
+            n = _purge_audio()
+            if n:
+                print(f"janitor: removed {n} audio files older than {AUDIO_TTL_HOURS:g} h")
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        time.sleep(600)
+
+
+threading.Thread(target=_janitor, daemon=True).start()
 
 
 @app.get("/api/stats")

@@ -340,3 +340,8 @@ button,.seg,.ghost{touch-action:manipulation; -webkit-tap-highlight-color:transp
 .notice a{color:#141414; font-weight:700; margin-left:8px}
 .notice.hidden{display:none}
 @media print{ .notice{display:none} }
+
+/* upload-first setup card */
+.filedrop-main{padding:28px 18px; font-size:1.05rem}
+.filedrop-main small{display:block; margin-top:8px; font-size:.72rem}
+#link-note{margin:6px 0 0}
