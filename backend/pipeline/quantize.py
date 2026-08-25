@@ -243,19 +243,32 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
     for bar in bars:
         n = bar.subdivision
         slot = PPQ // n
-        total = n * bpb
         cym = [x for x in bar.notes if x.inst in CYMS]
-        have = {x.tick // slot for x in cym}
-        if total and len(have) / total >= 0.8:
-            vel = float(np.median([x.velocity for x in cym]))
-            span = bar.end_time - bar.start_time
-            for sl in range(1, total - 1):
-                if sl in have or (sl - 1) not in have or (sl + 1) not in have:
-                    continue
-                bar.notes.append(QNote(
-                    tick=sl * slot, inst="hihat", velocity=vel,
-                    time=bar.start_time + span * sl / total))
-            bar.notes.sort(key=lambda x: (x.tick, x.inst))
+        if not cym:
+            continue
+        span = bar.end_time - bar.start_time
+        vel = float(np.median([x.velocity for x in cym]))
+        # Judge the run at the hats' OWN pulse. An 8th-note hat line fills
+        # only half of a 16th grid, so a 16th-only test never repaired the
+        # most common groove in rock.
+        for pulse in sorted({PPQ // 2, slot}, reverse=True):
+            nslots = (PPQ * bpb) // pulse
+            on = [x for x in cym if x.tick % pulse == 0]
+            have = {x.tick // pulse for x in on}
+            if nslots and len(have) / nslots >= 0.75:
+                for sl in range(1, nslots - 1):
+                    if sl in have or (sl - 1) not in have or (sl + 1) not in have:
+                        continue
+                    bar.notes.append(QNote(
+                        tick=sl * pulse, inst="hihat", velocity=vel,
+                        time=bar.start_time + span * sl / nslots))
+                # a run at the 8th pulse: stray, weaker hats on odd 16ths are
+                # doubles or bleed, not playing
+                if pulse == PPQ // 2 and len(on) >= 0.75 * len(cym):
+                    bar.notes = [x for x in bar.notes if not (
+                        x.inst in CYMS and x.tick % pulse != 0 and x.velocity < 0.6 * vel)]
+                break
+        bar.notes.sort(key=lambda x: (x.tick, x.inst))
 
 
 def _trim_edges(bars: list[QBar]) -> list[QBar]:

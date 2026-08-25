@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-25a';
+const APP_BUILD='2026-08-25b';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -228,20 +228,29 @@ function watch(jobId){
   S.progT0=Date.now(); S.progSrv=0.02; S.progAt=Date.now();
   // Between server updates the bar creeps a little (never past the next
   // stage) and the clock ticks - a frozen bar reads as a hung app.
+  S.stripe=0;
   S.creep=setInterval(()=>{
     const idle=(Date.now()-S.progAt)/1000;
     const creep=Math.min(0.035, 0.035*(1-Math.exp(-idle/45)));
     const shown=Math.min(0.99, S.progSrv+creep);
-    $('#prog-fill').style.width=(shown*100).toFixed(1)+'%';
+    const fill=$('#prog-fill');
+    fill.style.width=(shown*100).toFixed(1)+'%';
+    // move the stripes from JS as well - never rely on a CSS animation that
+    // a cached stylesheet or reduced-motion setting can switch off
+    S.stripe=(S.stripe+7)%28;
+    fill.style.backgroundPosition=S.stripe+'px 0';
     if($('#prog-pct')) $('#prog-pct').textContent=Math.round(shown*100)+'%';
     if($('#prog-elapsed')) $('#prog-elapsed').textContent=fmtTime((Date.now()-S.progT0)/1000)+' elapsed';
-  }, 500);
+  }, 250);
   S.poll=setInterval(async()=>{
     let j;
     try{ j=await api(`/api/jobs/${jobId}`); }
     catch(e){ return; }
     if(j.progress!==S.progSrv){ S.progSrv=j.progress; S.progAt=Date.now(); }
-    $('#prog-msg').textContent=j.message||'';
+    let msg=j.message||'';
+    // an exhausted estimate must not read as a stall
+    if(/about 0:0\d left/.test(msg)) msg=msg.replace(/ \u2014 about 0:0\d left/,'')+' \u2014 taking longer than estimated (server is busy), still working';
+    $('#prog-msg').textContent=msg;
     $$('#prog-steps li').forEach(li=>{
       const at=Number(li.dataset.at);
       li.classList.toggle('done', j.progress>=at);

@@ -92,11 +92,16 @@ def separate(wav: Path, cache_dir: Path, progress=None) -> dict[str, np.ndarray]
         def ticker():
             t0 = time.time()
             while not stop.wait(2.0):
-                frac = min(0.97, (time.time() - t0) / expect)
-                left = max(0, int(expect - (time.time() - t0)))
+                el = time.time() - t0
+                frac = min(0.97, el / expect)
+                left = int(expect - el)
                 if progress:
-                    progress(0.50 + 0.10 * frac,
-                             f"Splitting the kit: kick / snare / toms / hats / cymbals \u2014 about {left // 60}:{left % 60:02d} left")
+                    if left > 3:
+                        progress(0.50 + 0.10 * frac,
+                                 f"Splitting the kit: kick / snare / toms / hats / cymbals \u2014 about {left // 60}:{left % 60:02d} left")
+                    else:
+                        progress(0.50 + 0.10 * frac,
+                                 f"Splitting the kit \u2014 taking longer than estimated (server is busy), still working \u2014 {int(el) // 60}:{int(el) % 60:02d} elapsed")
         if progress:
             progress(0.50, "Splitting the kit: kick / snare / toms / hats / cymbals")
         th = threading.Thread(target=ticker, daemon=True); th.start()
