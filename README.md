@@ -3,8 +3,8 @@
 **Drop in a song, get drum notation you can practise with** — plus the isolated drum track and a
 drums-removed backing track to play along to.
 
-Built by the people behind **[DrumMate](https://drummate.app/?utm_source=github&utm_medium=readme&utm_campaign=drummate-chart)**, the live band for your electronic drum
-kit: you drum, the band follows. This is the sibling for learning the song first.
+Built by the people behind **[DrumMate](https://drummate.app/?utm_source=github&utm_medium=readme&utm_campaign=drummate-chart)**, the live band that follows the
+drummer — electronic kit, pads or acoustic: you drum, the band follows. This is the sibling for learning the song first.
 
 ![DrumMate Chart](docs/screenshot.png)
 
@@ -135,4 +135,4 @@ build a CPU-only container.
 - Separation: [Demucs](https://github.com/facebookresearch/demucs) (MIT) and the MDX23C DrumSep
   model by aufr33 & jarredou via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator).
 - Engraving: [VexFlow](https://github.com/0xfe/vexflow).
-- Made by [DrumMate](https://drummate.app/?utm_source=github&utm_medium=readme&utm_campaign=drummate-chart). If the chart got you through the song, go play it with a band that follows you.
+- Made by [DrumMate](https://drummate.app/?utm_source=github&utm_medium=readme&utm_campaign=drummate-chart). If the chart got you through the song, go play it with a band that follows you — on any kit.

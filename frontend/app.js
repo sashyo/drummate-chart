@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26l';
+const APP_BUILD='2026-08-26m';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
