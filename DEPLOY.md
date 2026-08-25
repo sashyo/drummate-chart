@@ -109,16 +109,21 @@ Environment knobs (set in the shell that runs the script, or in the script):
 | `DRUMS_SEPARATION` | auto | `htdemucs` to skip the fine-tuned model |
 | `DRUMS_MAX_SECONDS` | 600 | cap on analysed audio per job |
 | `DRUMS_DATA` | `<repo>/data` | where jobs/cache/stats live |
-| `DRUMS_COOKIE_FILE` / `DRUMS_COOKIES_FROM_BROWSER` | unset | yt-dlp cookies if YouTube starts bot-checking (common on datacenter IPs; rare at home) |
+| `DRUMS_ALLOW_YOUTUBE` | 0 | the public site takes uploads and direct audio links only; `1` re-enables YouTube/streaming fetches for a private build |
+| `DRUMS_AUDIO_TTL_HOURS` | 6 | per-job drums/backing mp3s (what the chart plays) are deleted after this; charts/MIDI/MusicXML are kept |
+| `DRUMS_KEEP_SOURCES` | 0 | `1` disables delete-on-use (sources, decoded wav and separation caches are otherwise removed the moment a job ends) — private builds only |
+| `DRUMS_COOKIE_FILE` / `DRUMS_COOKIES_FROM_BROWSER` | unset | yt-dlp cookies, only relevant with `DRUMS_ALLOW_YOUTUBE=1` |
 
 ## 5. Verify (all four, in order)
 
     curl -s localhost:8000/api/health                      # {"ok":true,"demucs":true,"drumsep":true,...}
     curl -s https://chart.drummate.app/api/health          # same, through the tunnel
     curl -s https://chart.drummate.app/api/stats | head -c 300   # counter restored ("allTime" numbers non-zero)
-    curl -s -X POST localhost:8000/api/transcribe -H 'content-type: application/json' \
-         -d '{"url":"https://www.youtube.com/watch?v=OMOGaugKpzs","beatsPerBar":4,"renderAudio":true}'
-    # poll /api/jobs/<jobId> until "done" (~4 min on a GPU, 15–40 min on CPU); then open the site and load it.
+    curl -s -X POST localhost:8000/api/upload -F "file=@some.wav" -F 'options={"renderAudio":true}'
+    # (the public site takes uploads and direct audio links; a YouTube link answers 403 unless DRUMS_ALLOW_YOUTUBE=1)
+    # poll /api/jobs/<jobId> until "done" (~1 min for a 40 s clip on a GPU); then open the site and load it.
+    # afterwards: the upload and its caches must be gone from data/cache (delete-on-use), the job dir keeps
+    # score.json / drums.mid / drums.musicxml plus drums.mp3 / backing.mp3 for a few hours.
 
 A finished chart from the old machine must also open: pick any id from `data/jobs/` and GET
 `/api/jobs/<id>` — the server rehydrates finished jobs from disk.
