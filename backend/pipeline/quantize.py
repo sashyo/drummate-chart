@@ -251,6 +251,23 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
             bar.notes = [x for x in bar.notes if not (
                 x.inst == "kick" and x.velocity <= 0.06 and x.tick in snare_ticks)]
 
+    # A floor-velocity snare (below its own local 10th percentile) is either
+    # a ghost note or bleed. Ghost grooves REPEAT - the same slot carries a
+    # snare in the bar before or after - while bleed lands anywhere. Keep
+    # the repeating ones, drop the strays (published charts write neither
+    # Billie Jean's nor Every Breath's 0.05-velocity blips).
+    sv = [x.velocity for b in bars for x in b.notes if x.inst == "snare"]
+    if sv and float(np.median(sv)) >= 0.3:
+        slots = [{x.tick for x in b.notes if x.inst == "snare"} for b in bars]
+        for bi, bar in enumerate(bars):
+            near = set()
+            if bi:
+                near |= slots[bi - 1]
+            if bi + 1 < len(bars):
+                near |= slots[bi + 1]
+            bar.notes = [x for x in bar.notes if not (
+                x.inst == "snare" and x.velocity <= 0.06 and x.tick not in near)]
+
     for bi, bar in enumerate(bars):
         n = bar.subdivision
         slot = PPQ // n
