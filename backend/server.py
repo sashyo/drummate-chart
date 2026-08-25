@@ -482,6 +482,23 @@ except Exception:  # noqa: BLE001
 _stats_dirty = False
 
 
+_active: dict[str, float] = {}          # hashed ip -> last seen (any app request)
+
+
+def _touch(request) -> None:
+    import hashlib
+    ip = _client_ip(request)
+    if ip in ("127.0.0.1", "::1", "?"):
+        return
+    h = hashlib.sha256(f"live|{ip}|drummate".encode()).hexdigest()[:16]
+    now = time.time()
+    with _stats_lock:
+        _active[h] = now
+        if len(_active) > 5000:
+            for k in [k for k, t in _active.items() if now - t > 900]:
+                _active.pop(k, None)
+
+
 def _client_ip(request) -> str:
     return (request.headers.get("cf-connecting-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
             or (request.client.host if request.client else "?"))
@@ -538,11 +555,19 @@ threading.Thread(target=_flush_stats, daemon=True).start()
 
 @app.get("/api/stats")
 def stats():
+    now = time.time()
     with _stats_lock:
         days = {day: {"visitors": len(d["visitors"]), "submitters": len(d["submitters"]),
                       "submissions": d["submissions"], "charts_done": d["charts_done"]}
                 for day, d in sorted(_stats["days"].items())}
-        return {"days": days, "allTime": {"visitors": len(_stats["all_visitors"]),
+        active5 = sum(1 for t in _active.values() if now - t < 300)
+        active15 = sum(1 for t in _active.values() if now - t < 900)
+        queue = [{"id": j.id, "status": j.status, "title": (j.title or "")[:60]}
+                 for j in _jobs.values() if j.status in ("queued", "running")]
+        return {"now": {"active5min": active5, "active15min": active15,
+                        "running": sum(1 for j in queue if j["status"] == "running"),
+                        "queued": sum(1 for j in queue if j["status"] == "queued"), "queue": queue},
+                "days": days, "allTime": {"visitors": len(_stats["all_visitors"]),
                                           "submitters": len(_stats["all_submitters"]),
                                           "submissions": sum(d["submissions"] for d in _stats["days"].values()),
                                           "charts_done": sum(d["charts_done"] for d in _stats["days"].values())}}
@@ -556,6 +581,8 @@ async def _revalidate_app_shell(request, call_next):
         _count("visit", request)
     elif request.method == "POST" and request.url.path == "/api/transcribe":
         _count("submit", request)
+    if request.url.path == "/" or request.url.path.startswith("/api/jobs/"):
+        _touch(request)
     resp = await call_next(request)
     path = request.url.path
     if path == "/" or path.endswith((".js", ".css", ".html", ".svg")):
