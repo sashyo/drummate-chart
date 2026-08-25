@@ -38,7 +38,9 @@ for s in songs:
     while True:
         try:
             q = subprocess.run(["curl", "-s", "localhost:8000/api/queue"], capture_output=True, text=True, timeout=10).stdout
-            if q.strip() in ("[]", ""):
+            # run alongside at most one live job (the GPU interleaves two
+            # processes fine; three is where users start to feel it)
+            if not q.strip() or len(json.loads(q)) < 2:
                 break
         except Exception:  # noqa: BLE001
             break
