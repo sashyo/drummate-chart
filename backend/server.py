@@ -184,6 +184,7 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
         _mark(job.id, "done")
         _count("done")
         _last_touch[job.id] = time.time()
+        _done_at[job.id] = time.time()
     except Cancelled:
         _mark(job.id, "error", error="Cancelled")
         with _lock:
@@ -513,6 +514,15 @@ def clonehero(job_id: str):
                     headers={"Content-Disposition": f'attachment; filename="{safe} [Clone Hero].zip"'})
 
 
+@app.post("/api/jobs/{job_id}/audio-received")
+def audio_received(job_id: str):
+    """Zero retention: the browser holds the audio now; drop ours."""
+    job = _jobs.get(job_id)
+    if job and job.status in ("queued", "running"):
+        return {"released": 0}
+    return {"released": _release_audio(job_id, force=True)}
+
+
 @app.post("/api/jobs/{job_id}/release")
 def release(job_id: str):
     """The page left the chart: drop its audio now (sendBeacon on pagehide)."""
@@ -569,7 +579,7 @@ def health():
     from .pipeline.drumsep import available as drumsep_available
     return {"ok": True, "demucs": demucs_available(), "drumsep": drumsep_available(),
             "maxSeconds": MAX_SECONDS, "workers": WORKERS, "links": ALLOW_LINKS, "youtube": ALLOW_YOUTUBE,
-            "youtubeWithConsent": YOUTUBE_WITH_CONSENT,
+            "youtubeWithConsent": YOUTUBE_WITH_CONSENT, "zeroRetention": ZERO_RETENTION,
             "audioTtlHours": AUDIO_TTL_HOURS}
 
 
@@ -679,17 +689,24 @@ threading.Thread(target=_flush_stats, daemon=True).start()
 # got to say so, SESSION_IDLE_MIN minutes without a request to that job
 # does it. AUDIO_TTL_HOURS remains the hard cap.
 SESSION_IDLE_MIN = float(os.environ.get("DRUMS_SESSION_IDLE_MIN", 20))
+# Zero retention (public site): the browser pulls a finished chart's audio
+# into memory and confirms; the server deletes its copies that instant, or
+# after ZERO_RETENTION_GRACE_MIN if nobody collects them. No audio is kept.
+ZERO_RETENTION = os.environ.get("DRUMS_ZERO_RETENTION", "0") == "1"
+ZERO_RETENTION_GRACE_MIN = float(os.environ.get("DRUMS_ZERO_RETENTION_GRACE_MIN", 10))
+_done_at: dict[str, float] = {}
 _last_touch: dict[str, float] = {}
 
 
-def _release_audio(job_id: str) -> int:
+def _release_audio(job_id: str, force: bool = False) -> int:
     # a chart made from the user's OWN upload keeps its drum/backing tracks
     # for the AUDIO_TTL_HOURS cap (their file; downloads must survive a
-    # reload). Link-sourced charts are session-only.
+    # reload) - unless the site runs zero-retention, where nothing is kept.
     j = _get(job_id)
-    if j is not None and j.user_audio:
+    if j is not None and j.user_audio and not force and not ZERO_RETENTION:
         _last_touch.pop(job_id, None)
         return 0
+    _done_at.pop(job_id, None)
     d = JOBS_DIR / job_id
     n = 0
     for name in _JOB_AUDIO:
@@ -741,6 +758,9 @@ def _janitor() -> None:
         try:
             now = time.time()
             idle = [j for j, t in list(_last_touch.items()) if now - t > SESSION_IDLE_MIN * 60]
+            if ZERO_RETENTION:
+                # nobody collected these within the grace period: delete anyway
+                idle += [j for j, t in list(_done_at.items()) if now - t > ZERO_RETENTION_GRACE_MIN * 60]
             released = sum(_release_audio(j) for j in idle
                            if not any(x.status in ("queued", "running") for x in [_jobs.get(j)] if x))
             if released:

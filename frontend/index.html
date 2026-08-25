@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DrumMate Chart</title>
 <link rel="stylesheet" href="fonts.css">
-<link rel="stylesheet" href="style.css?v=2026-08-26k">
+<link rel="stylesheet" href="style.css?v=2026-08-26l">
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 </head>
 <body>
@@ -36,7 +36,7 @@
     <label class="filedrop filedrop-main" id="filedrop">
       <input id="file" type="file" accept="audio/*,video/*" hidden>
       <span><b>Drop an audio file here</b>, or <u>browse</u> &mdash; mp3, wav, m4a, flac, ogg</span>
-      <small class="muted">Your audio is used only to make your chart and is deleted the moment the chart is done; the drum and backing tracks from your upload stay available for a few hours, then go.</small>
+      <small class="muted">Your audio is used only to make your chart and is deleted the moment the chart is done; the drum and backing tracks are handed to your browser and never kept here.</small>
     </label>
 
     <div class="or hidden" id="link-or"><span>or paste a direct link to an audio file</span></div>
@@ -183,6 +183,7 @@
     <label class="check" title="Play the written chart on top of the audio — mismatches become audible"><input id="opt-hear" type="checkbox"> Hear chart</label>
     <label class="check"><input id="opt-follow" type="checkbox" checked> Follow</label>
     <div class="loopbox">
+<p id="audio-gone" class="small muted hidden">The drum and backing tracks for this chart are gone: the site keeps no audio after a chart is delivered. Upload the file again to hear them.</p>
       <button id="btn-loop" class="ghost small" title="Tap, then tap the first and last bar to loop">Loop</button>
       <span id="loop-label" class="muted">off</span>
       <button id="btn-loop-clear" class="ghost small">Clear</button>
@@ -229,6 +230,6 @@
 </section>
 
 <script src="vendor/vexflow.js"></script>
-<script src="app.js?v=2026-08-26k"></script>
+<script src="app.js?v=2026-08-26l"></script>
 </body>
 </html>

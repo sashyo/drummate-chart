@@ -113,6 +113,7 @@ Environment knobs (set in the shell that runs the script, or in the script):
 | `DRUMS_LINKS` | 1 (start-chart.sh sets 0) | accept links at all; the public site is upload-only |
 | `DRUMS_ALLOW_YOUTUBE` | 1 (start-chart.sh sets 0) | fetch YouTube/streaming links; on by default for a personal machine, off on the public site |
 | `DRUMS_YOUTUBE_WITH_CONSENT` | 1 (start-chart.sh sets 0) | with YouTube off, allow it behind a rights checkbox recorded on the job |
+| `DRUMS_ZERO_RETENTION` | 0 (start-chart.sh sets 1) | the browser takes a finished chart's audio into memory and confirms; the server deletes its copies at once (or after `DRUMS_ZERO_RETENTION_GRACE_MIN`, 10, if nobody collects) |
 | `DRUMS_SESSION_IDLE_MIN` | 20 | a chart's drum/backing tracks are released when its page closes, or after this idle time |
 | `DRUMS_AUDIO_TTL_HOURS` | 6 | per-job drums/backing mp3s (what the chart plays) are deleted after this; charts/MIDI/MusicXML are kept |
 | `DRUMS_KEEP_SOURCES` | 0 | `1` disables delete-on-use (sources, decoded wav and separation caches are otherwise removed the moment a job ends) — private builds only |

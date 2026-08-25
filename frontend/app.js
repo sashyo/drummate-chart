@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-26k';
+const APP_BUILD='2026-08-26l';
 const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
@@ -294,6 +294,7 @@ function watch(jobId){
     if(j.status==='done'){
       clearInterval(S.poll); clearInterval(S.creep);
       const score=await api(`/api/jobs/${jobId}/score`);
+      await holdAudio(jobId, j);
       openScore(score);
     }else if(j.status==='error'){
       clearInterval(S.poll); clearInterval(S.creep);
@@ -818,6 +819,26 @@ function renderLesson(){
 
 /* ── rendering ────────────────────────────────────────────────────────── */
 
+// Zero retention: the site keeps no audio. As soon as a chart is done the
+// browser pulls the drums-only / drumless tracks (and, for an upload, the
+// Clone Hero package) into memory and tells the server, which deletes its
+// copies on the spot. Playback and downloads run off these blobs; a reload
+// keeps the chart but not the audio.
+async function holdAudio(jobId, j){
+  S.held=null;
+  if(!(S.health && S.health.zeroRetention) || !j.audioAvailable) return;
+  const held={};
+  const grab=async(path)=>{ const r=await fetch(path); if(!r.ok) throw new Error(path); return URL.createObjectURL(await r.blob()); };
+  try{
+    held.drums=await grab(`/api/jobs/${jobId}/files/drums.mp3`);
+    held.backing=await grab(`/api/jobs/${jobId}/files/backing.mp3`);
+    if(j.userAudio) held.ch=await grab(`/api/jobs/${jobId}/clonehero`);
+    S.held=held;
+  }catch(_){ S.held=Object.keys(held).length?held:null; }
+  try{ await fetch(`/api/jobs/${jobId}/audio-received`,{method:'POST'}); }catch(_){}
+}
+function audioSrc(name){ return (S.held && S.held[name]) || `/api/jobs/${S.jobId}/files/${name}.mp3`; }
+
 function openScore(score){
   S.score=score;
   S.cursorBar=-1; S.loopFrom=S.loopTo=null; updateLoopLabel();
@@ -831,8 +852,12 @@ function openScore(score){
   const src=$('#s-source');
   if(score.source){ src.href=score.source; src.classList.remove('hidden'); }
   else src.classList.add('hidden');
+  const noAudio=!!(S.health && S.health.zeroRetention) && !S.held && S.jobInfo && S.jobInfo.audioAvailable===false;
+  for(const k of ['drums','backing']){ const b=$(`.seg[data-src="${k}"]`); if(b) b.disabled=noAudio; }
+  $('#audio-gone')?.classList.toggle('hidden', !noAudio);
 
-  $('#dl-ch').href=`/api/jobs/${S.jobId}/clonehero`;
+  $('#dl-ch').href=(S.held && S.held.ch) || `/api/jobs/${S.jobId}/clonehero`;
+  $('#dl-ch').classList.toggle('hidden', !!(S.health && S.health.zeroRetention && S.jobInfo && S.jobInfo.userAudio && !(S.held && S.held.ch)));
   $('#dl-midi').href=`/api/jobs/${S.jobId}/files/drums.mid`;
   $('#dl-xml').href=`/api/jobs/${S.jobId}/files/drums.musicxml`;
   // audio downloads only for charts made from the user's own upload (the
@@ -841,9 +866,10 @@ function openScore(score){
   const own=!!(S.jobInfo && S.jobInfo.userAudio); const audio=S.score.audio||{};
   for(const [id,file,label] of [['#dl-drums','drums.mp3','drums only'],['#dl-drumless','backing.mp3','drumless']]){
     const a=$(id); if(!a) continue;
-    const have=own && Object.values(audio).includes(file);
+    const key=file.replace('.mp3','');
+    const have=own && Object.values(audio).includes(file) && (!(S.health && S.health.zeroRetention) || !!(S.held && S.held[key]));
     a.classList.toggle('hidden', !have);
-    a.href=`/api/jobs/${S.jobId}/files/${file}?dl=${encodeURIComponent(safe+' - '+label+'.mp3')}`;
+    a.href=(S.held && S.held[key]) || `/api/jobs/${S.jobId}/files/${file}?dl=${encodeURIComponent(safe+' - '+label+'.mp3')}`;
     a.setAttribute('download', safe+' - '+label+'.mp3');
   }
 
@@ -1151,8 +1177,8 @@ function selectSource(src){
   wrap.classList.toggle('hidden', src!=='youtube');
   if(src==='youtube'){ ensureYT(); }
   else if(src==='drums'||src==='backing'){
-    const want=`/api/jobs/${S.jobId}/files/${src}.mp3`;
-    if(!audio.src.endsWith(`${src}.mp3`)) audio.src=want;
+    const want=audioSrc(src);
+    if(audio.src!==want && !(audio.src.endsWith(`${src}.mp3`) && !S.held)) audio.src=want;
     audio.playbackRate=S.speed;
   }
   seek(at||0);
@@ -1535,6 +1561,7 @@ function init(){
   const release=()=>{ if(S.jobId && S.score){ try{ navigator.sendBeacon(`/api/jobs/${S.jobId}/release`); }catch(_){} } };
   window.addEventListener('pagehide', release);
   api('/api/health').then(h=>{
+    S.health=h||{};
     if(!h || h.links===false) return;                 // upload-only: the link section stays hidden
     for(const sel of ['#link-or','#link-row','#link-note']) $(sel)?.classList.remove('hidden');
     if(h.youtubeWithConsent && !h.youtube) $('#rights-row')?.classList.remove('hidden');

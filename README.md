@@ -59,7 +59,7 @@ cd drummate-chart
 **Links and YouTube are on by default when you run it yourself** — that's personal use on your own
 machine. Paste a YouTube link or a direct audio link, or drop a file.
 
-The public site is deliberately upload-only (`DRUMS_LINKS=0`) and deletes your audio the moment the chart is done
+The public site is deliberately upload-only (`DRUMS_LINKS=0`) and zero-retention (`DRUMS_ZERO_RETENTION=1`) and deletes your audio the moment the chart is done
 (see [Terms](frontend/terms.html)). Please don't run a public instance that fetches from YouTube;
 that's a breach of their terms and, served to strangers, a distribution of other people's recordings.
 
@@ -83,6 +83,7 @@ when present. A 3 GB card is enough.
 | `DRUMS_KEEP_SOURCES` | `0` | `1` keeps source audio and separation caches (default: deleted when the job ends) |
 | `DRUMS_AUDIO_TTL_HOURS` | `6` | hard cap on how long a chart's drum/backing tracks exist |
 | `DRUMS_SESSION_IDLE_MIN` | `20` | a chart's audio is released when its page is closed, or after this idle time |
+| `DRUMS_ZERO_RETENTION` | `0` | `1` (the public site): the browser takes a finished chart's audio into memory and the server deletes its copies at once; nothing audio is ever kept |
 
 ## How the pieces fit
 
