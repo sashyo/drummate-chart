@@ -73,7 +73,13 @@ def main():
         i = args.index("--show"); show = int(args[i + 1]); del args[i:i + 2]
     if "--offset" in args:
         i = args.index("--offset"); off_fixed = int(args[i + 1]); del args[i:i + 2]
-    doc = json.load(open(args[0])); tab = parse_tab(Path(args[1]).read_text(errors="ignore"))
+    doc = json.load(open(args[0]))
+    if args[1].endswith(".json"):
+        tab = [{c: set(v) for c, v in b.items()} for b in json.load(open(args[1]))["bars"]]
+        for b in tab:
+            b["_present"] = {"K", "S", "x", "T"}
+    else:
+        tab = parse_tab(Path(args[1]).read_text(errors="ignore"))
     chart = chart_bars(doc)
     classes = sorted({c for b in tab for c in b if c != "_present"} & {"K", "S", "x", "T"}) or ["K", "S", "x"]
     tabN = [norm(b, classes) for b in tab]; chN = [norm(b, classes) for b in chart]
