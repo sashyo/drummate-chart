@@ -164,7 +164,7 @@ def _align_score(times: np.ndarray, period: float, phase: float, sigma: float = 
     return float(np.exp(-(d / sigma) ** 2).sum())
 
 
-def _best_octave(hits, period: float, bpb: int) -> float:
+def _best_octave(hits, period: float, bpb: int, ac_mass=None) -> float:
     """Choose among T/2, T, 2T by how musical the resulting bars are.
 
     At the true tempo snares concentrate on two beat classes (the backbeat)
@@ -222,7 +222,20 @@ def _best_octave(hits, period: float, bpb: int) -> float:
              if 60 / 200 <= T <= 60 / 60]
     if not cands:
         return period
-    scored = [(judge(T), T) for T in cands]
+    # The autocorrelation is evidence too: on a live band that breathes
+    # (Back in Black, no click) a single-period alignment fits everything
+    # poorly and the bar-shape scores of 1x and 3/4x sit within 0.2 of each
+    # other, while the onset train's periodicity says 1x by six to one.
+    # A candidate pays for the autocorrelation mass it lacks relative to
+    # the seed - octave corrections (2x, 1/2x) still carry real mass at
+    # their lags and are only mildly taxed; 4:3-family candidates have none.
+    ref = ac_mass(period) if ac_mass else None
+    scored = []
+    for T in cands:
+        sc = judge(T)
+        if ref:
+            sc += float(np.clip(np.log((ac_mass(T) + 1.0) / (ref + 1.0)), -2.0, 0.0))
+        scored.append((sc, T))
     return max(scored, key=lambda x: x[0])[1]
 
 
@@ -266,7 +279,10 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
 
     # 1b. octave: pick the tempo whose bars look like bars
     if not fixed_tempo:
-        period = _best_octave(hits, period, beats_per_bar)
+        def ac_mass(T):
+            lo, hi = int(T * 0.955 / res), int(T * 1.045 / res) + 1
+            return float(ac[lo:hi].sum()) if hi <= len(ac) else 0.0
+        period = _best_octave(hits, period, beats_per_bar, ac_mass=ac_mass)
 
     # 2. joint period/phase refinement
     best = (-1.0, period, 0.0)
