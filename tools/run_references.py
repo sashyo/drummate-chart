@@ -11,7 +11,10 @@ out=Path("/tmp/drummate-refs"); out.mkdir(exist_ok=True)
 for r in refs:
     if flt and flt not in r["name"].lower(): continue
     d=out/r["name"].replace(" ","_").replace("/","-")
-    doc=transcribe(r["url"], d, ROOT/"data/cache", Options(render_audio=False))
+    try:
+        doc=transcribe(r["url"], d, ROOT/"data/cache", Options(render_audio=False))
+    except Exception as exc:  # noqa: BLE001 - one dead video must not end the suite
+        print("="*70); print(f"{r['name']}: FAILED {type(exc).__name__}: {exc}"); continue
     res=subprocess.run([sys.executable, str(ROOT/"tools/check_groove.py"), str(d/"score.json"), r["pattern"]],
                        capture_output=True, text=True).stdout
     print("="*70); print(f"{r['name']}  (published: {r['bpm']} BPM)"); print(res)

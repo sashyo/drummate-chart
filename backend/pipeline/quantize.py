@@ -45,6 +45,11 @@ class QBar:
     grid_name: str = "16th"
     start_time: float = 0.0
     end_time: float = 0.0
+    beats: int = 4
+
+    @property
+    def ticks(self) -> int:
+        return PPQ * self.beats
 
 
 @dataclass
@@ -72,8 +77,22 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
 
     beats = np.asarray(grid.to_beats(times), dtype=float)
     rel = beats - grid.bar_zero_beat            # beats since the first downbeat
-    bar_idx = np.floor(rel / bpb).astype(int)
-    pos = rel - bar_idx * bpb                   # 0..bpb within the bar
+    n_est = int(np.ceil(max(rel.max(), 0) / bpb)) + 2
+    bounds = grid.bar_bounds(n_est) - grid.bar_zero_beat    # bar starts, beats since bar 0
+    bar_len = np.diff(bounds)
+    bar_idx = np.searchsorted(bounds, rel, side="right") - 1
+    neg = bar_idx < 0                            # before the first downbeat
+    bar_idx = np.where(neg, np.floor(rel / bpb).astype(int), bar_idx)
+    bar_beats = np.where(neg, bpb, bar_len[np.clip(bar_idx, 0, len(bar_len) - 1)]).astype(int)
+    bar_off = np.where(neg, bar_idx * bpb, bounds[np.clip(bar_idx, 0, len(bounds) - 1)])
+    pos = rel - bar_off                         # 0..beats within the bar
+
+    def bar_span(i: int) -> tuple[float, float]:
+        if i < 0:
+            return grid.bar_zero_beat + i * bpb, grid.bar_zero_beat + (i + 1) * bpb
+        j = min(i, len(bounds) - 2)
+        b0 = bounds[j] + (i - j) * bpb
+        return grid.bar_zero_beat + b0, grid.bar_zero_beat + b0 + (bar_len[j] if i == j else bpb)
 
     swing, ratio = (_detect_swing(hits, pos) if detect_swing else (False, 0.5))
 
@@ -97,13 +116,14 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
 
         prev_n = bars[int(b) - 1].subdivision if int(b) - 1 in bars else None
         best_n = _choose_subdiv(p2, allowed, prev_n)
-        bar = QBar(index=int(b), subdivision=best_n, grid_name=GRIDS[best_n][0])
+        bar = QBar(index=int(b), subdivision=best_n, grid_name=GRIDS[best_n][0],
+                   beats=int(bar_beats[sel[0]]))
 
         step = 1.0 / best_n
         for k, i in enumerate(sel):
             snapped_beat = float(np.round(p2[k] / step) * step)
             tick = int(round(snapped_beat * PPQ))
-            tick = max(0, min(ticks_per_bar, tick))
+            tick = max(0, min(bar.ticks, tick))
             h = hits[i]
             bar.notes.append(QNote(
                 tick=tick, inst=h.inst, velocity=float(h.velocity),
@@ -112,11 +132,12 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
 
     # A note snapped to the very end of a bar belongs to the next downbeat.
     for b in sorted(bars):
-        carry = [n for n in bars[b].notes if n.tick >= ticks_per_bar]
+        carry = [n for n in bars[b].notes if n.tick >= bars[b].ticks]
         if carry:
-            bars[b].notes = [n for n in bars[b].notes if n.tick < ticks_per_bar]
+            bars[b].notes = [n for n in bars[b].notes if n.tick < bars[b].ticks]
+            nb0, nb1 = bar_span(b + 1)
             nxt = bars.setdefault(b + 1, QBar(index=b + 1, subdivision=bars[b].subdivision,
-                                              grid_name=bars[b].grid_name))
+                                              grid_name=bars[b].grid_name, beats=int(round(nb1 - nb0))))
             for n in carry:
                 n.tick = 0
                 nxt.notes.append(n)
@@ -125,11 +146,13 @@ def quantize(hits, grid, progress=None, max_subdiv: int = 4,
     for bar in ordered:
         bar.notes = _merge(bar.notes)
         bar.notes.sort(key=lambda n: (n.tick, n.inst))
-        bar.start_time = float(grid.to_time(grid.bar_zero_beat + bar.index * bpb))
-        bar.end_time = float(grid.to_time(grid.bar_zero_beat + (bar.index + 1) * bpb))
+        b0, b1 = bar_span(bar.index)
+        bar.start_time = float(grid.to_time(b0))
+        bar.end_time = float(grid.to_time(b1))
+        bar.beats = int(round(b1 - b0))
 
     _cleanup(ordered, bpb)
-    ordered = _fill_empty_bars(ordered, grid, bpb)
+    ordered = _fill_empty_bars(ordered, grid, bpb, bar_span)
     ordered = _trim_edges(ordered)
 
     return QScore(bars=ordered, ppq=PPQ, beats_per_bar=bpb, ticks_per_bar=ticks_per_bar,
@@ -230,7 +253,7 @@ def _merge(notes: list[QNote]) -> list[QNote]:
 CYMS = {"hihat", "openhh", "ride"}
 
 
-def _cleanup(bars: list[QBar], bpb: int) -> None:
+def _cleanup(bars: list[QBar], bpb_default: int) -> None:
     """Remove detection jitter so the same groove spells the same way.
 
     One repair, deliberately conservative: when the cymbal line fills >=80%%
@@ -282,6 +305,7 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
                 and (x.tick not in near or x.tick in kick_beats))]
 
     for bi, bar in enumerate(bars):
+        bpb = bar.beats
         n = bar.subdivision
         slot = PPQ // n
         cym = [x for x in bar.notes if x.inst in CYMS]
@@ -340,7 +364,7 @@ def _trim_edges(bars: list[QBar]) -> list[QBar]:
     return bars[lo:hi + 1]
 
 
-def _fill_empty_bars(bars: list[QBar], grid, bpb: int) -> list[QBar]:
+def _fill_empty_bars(bars: list[QBar], grid, bpb: int, bar_span=None) -> list[QBar]:
     """Insert genuinely empty bars so the chart keeps its bar numbering."""
     if not bars:
         return bars
@@ -350,9 +374,13 @@ def _fill_empty_bars(bars: list[QBar], grid, bpb: int) -> list[QBar]:
     for i in range(lo, hi + 1):
         b = have.get(i)
         if b is None:
-            b = QBar(index=i, subdivision=4, grid_name="16th")
-            b.start_time = float(grid.to_time(grid.bar_zero_beat + i * bpb))
-            b.end_time = float(grid.to_time(grid.bar_zero_beat + (i + 1) * bpb))
+            if bar_span is not None:
+                b0, b1 = bar_span(i)
+            else:
+                b0, b1 = grid.bar_zero_beat + i * bpb, grid.bar_zero_beat + (i + 1) * bpb
+            b = QBar(index=i, subdivision=4, grid_name="16th", beats=int(round(b1 - b0)))
+            b.start_time = float(grid.to_time(b0))
+            b.end_time = float(grid.to_time(b1))
         out.append(b)
     return out
 

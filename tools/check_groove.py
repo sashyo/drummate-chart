@@ -15,7 +15,9 @@ if len(toks)!=16:
     sys.exit(f"pattern must have 16 slot tokens separated by spaces, got {len(toks)}")
 slots=[set() if t=='.' else set(t) for t in toks]
 MAP={'kick':'K','snare':'S','hihat':'x','openhh':'x','ride':'x','crash':'x'}
-bars=[b for b in doc["bars"] if not b["empty"]]
+bars=[b for b in doc["bars"] if not b["empty"] and b.get("beats",4)==4]
+odd=[b for b in doc["bars"] if b.get("beats",4)!=4]
+if odd: print(f"({len(odd)} bars of other meters skipped: {[b['number'] for b in odd]})")
 print(f"{doc['title'][:50]} | {doc['tempo']:.1f} BPM | {len(bars)} bars | detector {doc.get('detector')} engine {doc.get('engine')}")
 agree=collections.Counter(); total=collections.Counter(); dev=collections.Counter()
 exact=0

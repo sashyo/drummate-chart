@@ -65,6 +65,9 @@ def build(q: QScore, meta: dict) -> dict:
             "endTime": round(bar.end_time, 4),
             "grid": bar.grid_name,
             "subdivision": bar.subdivision,
+            "beats": bar.beats,
+            "ticksPerBar": PPQ * bar.beats,
+            "timeSignature": f"{bar.beats}/4",
             "empty": len(bar.notes) == 0,
             "voices": voices,
             # Raw hits are the editable source of truth; the browser re-runs
@@ -111,7 +114,7 @@ def _build_voice(notes, bar, q: QScore) -> list[dict]:
     slot_ticks = PPQ // n
     elems: list[dict] = []
 
-    for beat in range(q.beats_per_bar):
+    for beat in range(bar.beats):
         lo, hi = beat * PPQ, (beat + 1) * PPQ
         in_beat = [x for x in notes if lo <= x.tick < hi]
         slots: dict[int, list] = {}
@@ -173,7 +176,7 @@ def _note(hits, dur, dots, beat, slot, bar, q) -> dict:
 
 def _rest(dur, dots, beat, slot, bar, q) -> dict:
     t = bar.start_time + (beat + slot / max(bar.subdivision, 1)) * (
-        (bar.end_time - bar.start_time) / max(q.beats_per_bar, 1))
+        (bar.end_time - bar.start_time) / max(bar.beats, 1))
     return {
         "type": "rest", "dur": dur, "dots": dots, "beat": beat,
         "keys": [], "insts": [], "accent": False, "ghost": False,

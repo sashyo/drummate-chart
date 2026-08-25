@@ -21,6 +21,10 @@ class BeatGrid:
     beats_per_bar: int
     downbeat_index: int        # index into beat_times of the first downbeat
     tempo_curve: np.ndarray    # instantaneous bpm per beat
+    # beat indices (relative to beat_times) where bars start; None = uniform
+    # beats_per_bar bars from downbeat_index. Set when the drums show a bar
+    # of a different length (a 2/4 turnaround).
+    bar_starts: np.ndarray | None = None
 
     def to_beats(self, t):
         """Seconds -> fractional beat number (0 = first tracked beat)."""
@@ -59,6 +63,17 @@ class BeatGrid:
     @property
     def bar_zero_beat(self) -> float:
         return float(self.downbeat_index)
+
+    def bar_bounds(self, n_bars: int) -> np.ndarray:
+        """Beat index of the start of bars 0..n_bars (n_bars+1 entries)."""
+        bpb = self.beats_per_bar
+        if self.bar_starts is None or len(self.bar_starts) < 2:
+            return self.downbeat_index + np.arange(n_bars + 1) * bpb
+        bs = np.asarray(self.bar_starts, dtype=float)
+        if len(bs) < n_bars + 1:
+            ext = bs[-1] + np.arange(1, n_bars + 2 - len(bs)) * bpb
+            bs = np.concatenate([bs, ext])
+        return bs[:n_bars + 1]
 
 
 def analyse(y: np.ndarray, mix: np.ndarray | None = None, progress=None,
@@ -303,26 +318,45 @@ def grid_from_drums(hits, duration: float, beats_per_bar: int,
     win = 12.0
     centers = np.arange(win / 2, duration, win / 2)
 
+    # the snare backbeat is the phase marker in nearly all popular music; a
+    # kick line that moves onto the '&'s for a chorus (Back in Black) must
+    # not drag the grid half a beat with it
+    voters = _anchor_hits(hits)
+    w_all = np.array([2.0 if h.inst == "snare" else 1.0 for h in voters])
+    a_all = np.array([h.time for h in voters])
+
     def follow(T, ph):
         offs, ts = [], []
         prev = 0.0
+        gap = 0                     # windows skipped for lack of anchors
         for c in centers:
-            sel = anchors[(anchors >= c - win / 2) & (anchors < c + win / 2)]
-            if len(sel) < 8:
+            m = (a_all >= c - win / 2) & (a_all < c + win / 2)
+            sel, w = a_all[m], w_all[m]
+            # kicks alone cannot move the grid: through a riff break with no
+            # backbeat (AC/DC turnarounds) the kicks sit on the guitar's
+            # off-beats and dragged the phase half a beat. Hold until the
+            # snare returns, then re-lock at once.
+            if len(sel) < 8 or (w > 1.0).sum() < 3:
+                gap += 1
                 continue
             frac = ((sel - ph) / T) % 1.0
             # search around the CURRENT offset, not the global phase: a
             # song a hair faster than the fitted period drifts linearly and
             # a fixed +/-0.3 window saturated a third of a beat behind it
             cands = prev + np.linspace(-0.3, 0.3, 61)
-            scores = [np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2).sum()
+            scores = [(w * np.exp(-((np.minimum((frac - d) % 1.0, 1 - (frac - d) % 1.0)) / 0.09) ** 2)).sum()
                       for d in cands]
             d = float(cands[int(np.argmax(scores))])
-            hold = np.exp(-((np.minimum((frac - prev) % 1.0, 1 - (frac - prev) % 1.0)) / 0.09) ** 2).sum()
+            hold = (w * np.exp(-((np.minimum((frac - prev) % 1.0, 1 - (frac - prev) % 1.0)) / 0.09) ** 2)).sum()
             if max(scores) < 1.15 * hold:
                 d = prev
-            d = prev + float(np.clip(d - prev, -0.12, 0.12))
+            # 0.12 beat per window follows a drummer; after a break with no
+            # anchors (a riff turnaround) the band re-enters wherever it
+            # likes and the grid must re-lock at once, not 20 s later
+            cap = 0.45 if gap else 0.12
+            d = prev + float(np.clip(d - prev, -cap, cap))
             offs.append(d); ts.append(c); prev = d
+            gap = 0
         return np.array(ts), np.array(offs)
 
     ts, offs = follow(T, ph)
@@ -420,9 +454,66 @@ def refine_with_hits(grid: BeatGrid, hits, progress=None) -> BeatGrid:
             if sc > best_s:
                 best_s, best_p = sc, p
         grid.downbeat_index = int(best_p)
+        # (odd-bar detection from backbeat parity is disabled: measured on
+        # Back in Black, a parity flip meant the grid slipping a beat across
+        # a snare-less break, not a real 2/4 bar. The bar_starts plumbing
+        # stays for a detector that earns it.)
+        grid.bar_starts = None
     if progress:
         progress(0.80, f"Grid aligned to the drums (shift {best_shift:+.2f} beat)")
     return grid
+
+
+def _odd_bars(grid: "BeatGrid", beat_idx: np.ndarray, insts: np.ndarray):
+    """Bar starts with a 2/4 bar wherever the backbeat changes parity.
+
+    A band that adds two beats at a section change (Back in Black's
+    turnarounds) leaves a uniform 4/4 grid a beat off for the whole next
+    section: the snares sit on 1 and 3 of the chart. Vote the backbeat
+    parity per two-bar block; a parity that holds for three blocks is a
+    real change, and the bar before it is written as 2/4.
+    """
+    bpb = grid.beats_per_bar
+    n_beats = len(grid.beat_times)
+    if bpb != 4 or n_beats < 32:
+        return None
+    d0 = grid.downbeat_index
+    sn = beat_idx[insts == "snare"]
+    blocks = []                                       # (start beat, parity or None)
+    for b0 in range(d0, n_beats - 8, 8):
+        c = (sn[(sn >= b0) & (sn < b0 + 8)] - d0) % 4
+        if len(c) < 2:
+            blocks.append((b0, None)); continue
+        a, b = int(np.isin(c, [1, 3]).sum()), int(np.isin(c, [0, 2]).sum())
+        blocks.append((b0, 0 if a > b else 1 if b > a else None))
+    starts, cur, k = [d0], 0, 0
+    flips = []
+    i = 0
+    while i < len(blocks):
+        b0, par = blocks[i]
+        if par is not None and par != cur:
+            # needs three consecutive blocks agreeing on the new parity
+            run = [p for _, p in blocks[i:i + 4] if p is not None]
+            if len(run) >= 3 and all(p == par for p in run[:3]):
+                flips.append(b0); cur = par
+                i += 3; continue
+        i += 1
+    if not flips:
+        return None
+    b = d0
+    for f in flips:
+        while b + bpb <= f:
+            b += bpb; starts.append(b)
+        # the bar straddling the flip becomes the short bar (2 beats), so
+        # that from the flip on the downbeat is where the snares say it is
+        if f - b == 2:
+            starts.append(f); b = f
+        elif f - b != 0:
+            # flip mid-bar at an odd beat: keep uniform bars (not a 2/4)
+            continue
+    while b + bpb < n_beats:
+        b += bpb; starts.append(b)
+    return np.array(starts, dtype=float)
 
 
 def _fix_octave(tempo: float) -> float:

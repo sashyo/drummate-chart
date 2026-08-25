@@ -43,6 +43,10 @@ doc = score.build(q, {"title": out.name, "source": "", "videoId": "", "separatio
                       "audio": {}, "stats": {"hits": len(det.hits), "bars": len(q.bars),
                                              "duration": round(det.duration, 2)}})
 (out / "score.json").write_text(json.dumps(doc, indent=1))
+from backend.pipeline import exports
+exports.write_midi(doc, q, out / "drums.mid"); exports.write_musicxml(doc, out / "drums.musicxml")
+odd = [(b.index + 1, b.beats) for b in q.bars if b.beats != q.beats_per_bar]
+if odd: print("odd bars (number, beats):", odd)
 print(f"{grid.tempo:.1f} BPM, {len(q.bars)} bars -> {out/'score.json'}")
 if a.pattern:
     print(subprocess.run([sys.executable, str(ROOT / "tools/check_groove.py"), str(out / "score.json"), a.pattern],

@@ -38,12 +38,15 @@ def write_midi(score: dict, qscore, path: Path) -> Path:
     events: list[tuple[int, int, str, int, int]] = []   # (tick, order, kind, note, vel)
     base = qscore.bars[0].index if qscore.bars else 0
 
+    bar_start = 0
+    cur_beats = None
     for bar in qscore.bars:
-        seq = bar.index - base
-        bar_start = seq * ticks_per_bar
         dur = max(bar.end_time - bar.start_time, 1e-3)
-        bpm = 60.0 * bpb / dur
+        bpm = 60.0 * bar.beats / dur
         bpm = min(max(bpm, 30.0), 300.0)
+        if bar.beats != cur_beats:
+            events.append((bar_start, -1, "meter", bar.beats, 0))
+            cur_beats = bar.beats
         events.append((bar_start, 0, "tempo", int(mido.bpm2tempo(bpm)), 0))
         for n in bar.notes:
             vel = int(round(45 + 82 * min(max(n.velocity, 0.0), 1.0)))
@@ -57,13 +60,16 @@ def write_midi(score: dict, qscore, path: Path) -> Path:
                 events.append((max(0, t - MIDI_PPQ // 12) + 30, 2, "off", K.midi_of(n.inst), 0))
             events.append((t, 1, "on", K.midi_of(n.inst), vel))
             events.append((t + 30, 2, "off", K.midi_of(n.inst), 0))
+        bar_start += bar.ticks * scale
 
     events.sort(key=lambda e: (e[0], e[1]))
     prev = 0
     for tick, _o, kind, a, b in events:
         delta = max(0, tick - prev)
         prev = tick
-        if kind == "tempo":
+        if kind == "meter":
+            track.append(mido.MetaMessage("time_signature", numerator=a, denominator=4, time=delta))
+        elif kind == "tempo":
             track.append(mido.MetaMessage("set_tempo", tempo=a, time=delta))
         elif kind == "on":
             track.append(mido.Message("note_on", channel=9, note=a, velocity=b, time=delta))
@@ -116,16 +122,21 @@ def write_musicxml(score: dict, path: Path) -> Path:
 
     part = ET.SubElement(root, "part", id="P1")
 
+    prev_beats = None
     for i, bar in enumerate(score["bars"]):
         m = ET.SubElement(part, "measure", number=str(bar["number"]))
-        if i == 0:
+        beats = int(bar.get("beats", score["beatsPerBar"]))
+        if i == 0 or beats != prev_beats:
             attrs = ET.SubElement(m, "attributes")
-            ET.SubElement(attrs, "divisions").text = str(DIVISIONS)
-            key = ET.SubElement(attrs, "key")
-            ET.SubElement(key, "fifths").text = "0"
+            if i == 0:
+                ET.SubElement(attrs, "divisions").text = str(DIVISIONS)
+                key = ET.SubElement(attrs, "key")
+                ET.SubElement(key, "fifths").text = "0"
             time = ET.SubElement(attrs, "time")
-            ET.SubElement(time, "beats").text = str(score["beatsPerBar"])
+            ET.SubElement(time, "beats").text = str(beats)
             ET.SubElement(time, "beat-type").text = "4"
+        prev_beats = beats
+        if i == 0:
             clef = ET.SubElement(attrs, "clef")
             ET.SubElement(clef, "sign").text = "percussion"
             ET.SubElement(clef, "line").text = "2"
@@ -144,13 +155,13 @@ def write_musicxml(score: dict, path: Path) -> Path:
                 ET.SubElement(dt2, "words").text = "Swing 8ths"
 
         total_up = _write_voice(m, bar["voices"].get(K.UP, []), voice=1, stem="up",
-                                _bar_beats=score["beatsPerBar"])
+                                _bar_beats=beats)
         down = bar["voices"].get(K.DOWN, [])
         if down:
             if total_up:
                 bk = ET.SubElement(m, "backup")
                 ET.SubElement(bk, "duration").text = str(total_up)
-            _write_voice(m, down, voice=2, stem="down", _bar_beats=score["beatsPerBar"])
+            _write_voice(m, down, voice=2, stem="down", _bar_beats=beats)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _indent(root)

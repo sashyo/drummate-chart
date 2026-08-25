@@ -101,11 +101,17 @@ def write_notes_mid(doc: dict, qscore, path: Path) -> Path:
     events = []                        # (tick, order, pitch, velocity, on)
     markers = set()                    # (tick, marker_pitch)
 
+    bar_tick = offset_ticks
+    meters = []                        # (tick, beats)
+    cur_beats = bpb
     for i, bar in enumerate(bars):
-        bar_tick = offset_ticks + i * bpb * RES
+        if i:
+            bar_tick += bars[i - 1].beats * RES
         dur = max(float(bar.end_time - bar.start_time), 1e-3)
-        bpm = min(max(60.0 * bpb / dur, 20.0), 400.0)
+        bpm = min(max(60.0 * bar.beats / dur, 20.0), 400.0)
         tempos.append((bar_tick, int(round(60_000_000 / bpm))))
+        if bar.beats != cur_beats:
+            meters.append((bar_tick, bar.beats)); cur_beats = bar.beats
 
         for n in bar.notes:
             lane = LANES.get(n.inst)
@@ -130,8 +136,13 @@ def write_notes_mid(doc: dict, qscore, path: Path) -> Path:
     events = sorted(set(events), key=lambda e: (e[0], e[1]))
 
     prev = 0
-    for tick, us in sorted(set(tempos)):
-        tempo_tr.append(mido.MetaMessage("set_tempo", tempo=us, time=tick - prev))
+    meta = sorted([(t, 0, "tempo", us) for t, us in set(tempos)] +
+                  [(t, 1, "meter", b) for t, b in meters])
+    for tick, _o, kind, val in meta:
+        if kind == "tempo":
+            tempo_tr.append(mido.MetaMessage("set_tempo", tempo=val, time=tick - prev))
+        else:
+            tempo_tr.append(mido.MetaMessage("time_signature", numerator=val, denominator=4, time=tick - prev))
         prev = tick
     tempo_tr.append(mido.MetaMessage("end_of_track", time=0))
 
