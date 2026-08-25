@@ -509,7 +509,8 @@ def _consolidate(bars: list[QBar], reach: int = 4, min_share: float = 0.6) -> No
                              and x.tick // slot in extras and x.velocity >= 0.5 * typ[c]]
             if has_toms or len(strong_extras) >= 2:
                 continue                                   # a fill: keep as played
-            if len(extras) + len(missing) > 4:
+            # weak extras are noise, not evidence of another groove
+            if len(strong_extras) + len(missing) > 4:
                 continue                                   # a different groove, not noise
             # one lone extra in a bar that otherwise IS the groove: a
             # transcriber writes it only as a deliberate accent, i.e. when it
