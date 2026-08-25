@@ -472,7 +472,7 @@ def refine_with_hits(grid: BeatGrid, hits, progress=None) -> BeatGrid:
                              - (np.char.startswith(ainst.astype(str), "tom") & (rel == 1)).sum())
                 return kick + 2.0 * crash + 1.0 * fill
             alt = (best_p + 2) % 4
-            if half_score(alt) > half_score(best_p) * 1.15 + 1.0:
+            if half_score(alt) > half_score(best_p) * 1.5 + 3.0:
                 best_p = alt
         grid.downbeat_index = int(best_p)
         # (odd-bar detection from backbeat parity is disabled: measured on
