@@ -511,9 +511,14 @@ def _consolidate(bars: list[QBar], reach: int = 4, min_share: float = 0.6) -> No
                 continue                                   # a fill: keep as played
             if len(extras) + len(missing) > 4:
                 continue                                   # a different groove, not noise
+            # one lone extra in a bar that otherwise IS the groove: a
+            # transcriber writes it only as a deliberate accent, i.e. when it
+            # is played at least as hard as the groove's own strokes
+            lone = len(extras) == 1 and not missing
+            gate = 0.75 if lone else 0.5
             keep = []
             for x in b.notes:
-                if _cls(x.inst) == c and x.tick // slot in extras and x.velocity < 0.5 * typ[c]:
+                if _cls(x.inst) == c and x.tick // slot in extras and x.velocity < gate * typ[c]:
                     continue
                 keep.append(x)
             b.notes = keep
