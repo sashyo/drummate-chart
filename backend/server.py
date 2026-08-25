@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .pipeline.run import Options, transcribe
+from .pipeline.run import ENGINE, Options, transcribe
 from .pipeline.fetch import FetchError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +46,7 @@ try:
 except Exception:  # noqa: BLE001
     pass
 _lock = threading.Lock()
+_pkg_locks: dict[str, threading.Lock] = {}
 
 
 @dataclass
@@ -156,18 +157,21 @@ def _run(job: Job, url: str | None, opts: Options, local: Path | None, title: st
             job.status, job.error, job.message = "error", str(exc), "Failed"
     except Exception as exc:  # noqa: BLE001
         traceback.print_exc()
-        _mark(job.id, "error")
+        _mark(job.id, "error", error=f"{type(exc).__name__}: {exc}")
         with _lock:
             job.status = "error"
             job.error = f"{type(exc).__name__}: {exc}"
             job.message = "Failed"
 
 
-def _mark(job_id: str, state: str) -> None:
+def _mark(job_id: str, state: str, error: str | None = None) -> None:
     p = JOBS_DIR / job_id / "job.json"
     if p.exists():
         try:
-            m = json.loads(p.read_text()); m["state"] = state; p.write_text(json.dumps(m))
+            m = json.loads(p.read_text()); m["state"] = state
+            if error:
+                m["error"] = error
+            p.write_text(json.dumps(m))
         except Exception:  # noqa: BLE001
             pass
 
@@ -224,6 +228,12 @@ def start(req: TranscribeRequest):
     for j in _jobs.values():
         if j.status in ("queued", "running") and getattr(j, "sig", None) == sig:
             return {"jobId": j.id, "duplicate": True}
+    # ...and a link already charted with the same options (someone else's
+    # Reddit find, or a refresh a day later) is handed back finished rather
+    # than queued for another 15 minutes of separation
+    done = _finished_with_sig(sig)
+    if done:
+        return {"jobId": done, "duplicate": True}
     job = Job(id=uuid.uuid4().hex[:12])
     job.sig = sig
     _jobs[job.id] = job
@@ -244,6 +254,30 @@ async def upload(file: UploadFile = File(...), options: str = Form("{}")):
     _manifest(job.id, req, None, dest, title)
     _submit(job, None, _opts(req), dest, title)
     return {"jobId": job.id}
+
+
+def _finished_with_sig(sig: str) -> str | None:
+    for j in list(_jobs.values()):
+        if j.status == "done" and getattr(j, "sig", None) == sig and j.score is not None:
+            return j.id
+    opts = json.loads(sig)
+    best = None
+    for p in JOBS_DIR.glob("*/job.json"):
+        try:
+            m = json.loads(p.read_text())
+        except Exception:  # noqa: BLE001
+            continue
+        if m.get("state") != "done" or not (p.parent / "score.json").exists():
+            continue
+        if m.get("options") != opts:
+            continue
+        try:
+            eng = json.loads((p.parent / "score.json").read_text()).get("engine", 0)
+        except Exception:  # noqa: BLE001
+            continue
+        if eng >= ENGINE and (best is None or m.get("created", 0) > best[0]):
+            best = (m.get("created", 0), m["id"])
+    return best[1] if best else None
 
 
 def _get(job_id: str):
@@ -371,9 +405,10 @@ def clonehero(job_id: str):
         doc = json.loads(path.read_text())
     zpath = out / "clonehero.zip"
     score_json = out / "score.json"
-    if not zpath.exists() or (score_json.exists()
-                              and score_json.stat().st_mtime > zpath.stat().st_mtime):
-        write_package(doc, from_json(doc, []), out)
+    with _pkg_locks.setdefault(job_id, threading.Lock()):
+        if not zpath.exists() or (score_json.exists()
+                                  and score_json.stat().st_mtime > zpath.stat().st_mtime):
+            write_package(doc, from_json(doc, []), out)
     safe = "".join(c for c in doc.get("title", "song") if c.isalnum() or c in " -_")[:60].strip() or "song"
     return FileResponse(zpath, media_type="application/zip",
                         filename=f"{safe} [Clone Hero].zip")

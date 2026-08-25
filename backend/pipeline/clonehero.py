@@ -201,17 +201,21 @@ def _to_ogg(src: Path, dst: Path) -> Path | None:
 
 def write_package(doc: dict, qscore, job_dir: Path) -> Path:
     """Assemble <job>/clonehero.zip; contents unzip into a CH Songs folder."""
-    notes = job_dir / "notes.mid"
+    # a private notes file per call: two downloads of the same chart at once
+    # (double click, two tabs) were deleting each other's notes.mid mid-zip
+    import uuid
+    notes = job_dir / f"notes-{uuid.uuid4().hex[:8]}.mid"
     write_notes_mid(doc, qscore, notes)
 
     title = doc.get("title", "song")
     safe = "".join(c for c in title if c.isalnum() or c in " -_()[]").strip() or "song"
     zpath = job_dir / "clonehero.zip"
+    tmp_zip = job_dir / f"clonehero-{notes.stem[6:]}.zip"
     backing = _to_ogg(job_dir / "backing.mp3", job_dir / "ch_song.ogg") \
         if (job_dir / "backing.mp3").exists() else None
     drums = _to_ogg(job_dir / "drums.mp3", job_dir / "ch_drums.ogg") \
         if (job_dir / "drums.mp3").exists() else None
-    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+    with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(notes, f"{safe}/notes.mid")
         z.writestr(f"{safe}/song.ini", _song_ini(doc))
         if backing:
@@ -219,4 +223,5 @@ def write_package(doc: dict, qscore, job_dir: Path) -> Path:
         if drums:
             z.write(drums, f"{safe}/drums.ogg" if backing else f"{safe}/song.ogg")
     notes.unlink(missing_ok=True)
+    tmp_zip.replace(zpath)                      # atomic: readers see old or new, never half
     return zpath
