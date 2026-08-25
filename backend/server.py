@@ -35,7 +35,16 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="DrumMate Chart")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-_pool = ThreadPoolExecutor(max_workers=1)   # separation is CPU-hungry; one at a time
+# Parallel jobs. Each job wants every core, so N workers each get 1/N of the
+# CPU - same total throughput, but N users see their own job start and move
+# instead of waiting behind a stranger's. Peak RAM is ~3-4 GB per job.
+WORKERS = max(1, int(os.environ.get("DRUMS_WORKERS", "2")))
+_pool = ThreadPoolExecutor(max_workers=WORKERS)
+try:
+    import torch
+    torch.set_num_threads(max(1, (os.cpu_count() or 4) // WORKERS))
+except Exception:  # noqa: BLE001
+    pass
 _lock = threading.Lock()
 
 
@@ -55,18 +64,15 @@ class Job:
         d.pop("score", None)
         d["hasScore"] = self.score is not None
         if self.status == "queued":
-            # one worker: say what we're actually waiting for
-            ahead = [j for j in _jobs.values()
-                     if j.id != self.id and j.status == "running"
-                     or (j.status == "queued" and j.created < self.created)]
-            running = next((j for j in ahead if j.status == "running"), None)
-            n = len(ahead)
-            if n == 0:
+            queued_ahead = [j for j in _jobs.values()
+                            if j.status == "queued" and j.created < self.created]
+            running = [j for j in _jobs.values() if j.status == "running"]
+            n = len(queued_ahead)
+            if n == 0 and len(running) < WORKERS:
                 d["message"] = "Queued \u2014 starting momentarily"
             else:
-                what = f' ("{running.title or "another song"}" is processing)' if running else ""
-                d["message"] = (f"Queued behind {n} job{'s' if n > 1 else ''}{what} "
-                                "\u2014 one transcription runs at a time")
+                d["message"] = (f"Queued: {n} ahead of you, {len(running)} running "
+                                f"\u2014 {WORKERS} transcriptions run at a time")
         return d
 
 
@@ -393,7 +399,7 @@ def health():
     from .pipeline.separate import demucs_available
     from .pipeline.drumsep import available as drumsep_available
     return {"ok": True, "demucs": demucs_available(), "drumsep": drumsep_available(),
-            "maxSeconds": MAX_SECONDS}
+            "maxSeconds": MAX_SECONDS, "workers": WORKERS}
 
 
 @app.middleware("http")
