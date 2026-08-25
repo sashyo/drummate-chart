@@ -5,8 +5,8 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-25e';
-const ENGINE_CURRENT=3;
+const APP_BUILD='2026-08-25f';
+const ENGINE_CURRENT = 4;
 
 const VF = Vex.Flow;
 const $ = (s) => document.querySelector(s);
@@ -138,6 +138,8 @@ function layoutVoice(hits, subdiv, beatsPerBar){
   return elems;
 }
 
+function barBeats(bar){ return (bar && bar.beats) || S.score.beatsPerBar; }
+function barTicks(bar){ return (bar && bar.ticksPerBar) || S.score.ticksPerBar; }
 function layoutBar(bar, beatsPerBar){
   const up=bar.hits.filter(h=>DRUMS[h.inst]?.voice==='up');
   const down=bar.hits.filter(h=>DRUMS[h.inst]?.voice==='down');
@@ -394,7 +396,7 @@ function renderBarInto(el, hits, width, withCounts, subdivision=2){
   const stave=new VF.Stave(4, 22, width-10, {num_lines:5});
   stave.setContext(ctx).draw();
   const bar={hits:hits.map(h=>({...h})), subdivision};
-  const laid=layoutBar(bar, S.score.beatsPerBar);
+  const laid=layoutBar(bar, barBeats(bar));
   const voices=[], beams=[], drawn=[];
   for(const [elems,dir] of [[laid.up,'up'],[laid.down,'down']]){
     if(dir==='down' && !elems.some(e=>e.type==='note')) continue;
@@ -410,7 +412,7 @@ function renderBarInto(el, hits, width, withCounts, subdivision=2){
             .setVerticalJustify(VF.AnnotationVerticalJustify.BOTTOM), 0);
         }catch(_){}
       }
-    const v=new VF.Voice({num_beats:S.score.beatsPerBar, beat_value:4});
+    const v=new VF.Voice({num_beats:barBeats(bar), beat_value:4});
     v.setStrict(false); v.addTickables(notes.map(n=>n.vf));
     voices.push(v);
     VF.Beam.generateBeams(notes.filter(n=>n.el.type==='note').map(n=>n.vf), {
@@ -971,14 +973,14 @@ function renderLegend(host){
 
 function renderScore(){
   const host=$('#score');
-  host.innerHTML=''; S.systems=[];
+  host.innerHTML=''; S.systems=[]; S._lastDrawnBar=null;
   renderLesson();
   if($('#opt-key') ? $('#opt-key').checked : true) renderLegend(host);
   const bpb=S.score.beatsPerBar;
   const width=Math.max(340, host.clientWidth-16);
 
   const priced=visibleBars().map(bar=>{
-    const laid=layoutBar(bar, bpb);
+    const laid=layoutBar(bar, barBeats(bar));
     const n=Math.max(laid.up.length, laid.down.length);
     return {bar, laid, need:Math.max(148, 56+24*n)};   // dense bars get real air
   });
@@ -1020,8 +1022,13 @@ function drawSystem(div, row, width, isFirst){
     const stave=new VF.Stave(x, SYS_TOP, w, {num_lines:5});
     if(isFirst && bi===0){
       stave.addClef('percussion');
-      stave.addTimeSignature(S.score.timeSignature);
+      stave.addTimeSignature(p.bar.timeSignature||S.score.timeSignature);
+    } else {
+      // a bar of a different length (a 2/4 turnaround) announces itself
+      const prevBar=S._lastDrawnBar;
+      if(prevBar && barBeats(p.bar)!==barBeats(prevBar)) stave.addTimeSignature(p.bar.timeSignature||`${barBeats(p.bar)}/4`);
     }
+    S._lastDrawnBar=p.bar;
     stave.setMeasure(p.bar.number);
     stave.setContext(ctx).draw();
 
@@ -1030,7 +1037,7 @@ function drawSystem(div, row, width, isFirst){
       if(dir==='down' && !elems.some(e=>e.type==='note')) continue;
       const notes=buildNotes(elems, dir);
       if(!notes.length) continue;
-      const v=new VF.Voice({num_beats:S.score.beatsPerBar, beat_value:4});
+      const v=new VF.Voice({num_beats:barBeats(p.bar), beat_value:4});
       v.setStrict(false);
       v.addTickables(notes.map(n=>n.vf));
       voices.push({voice:v, notes, dir});
@@ -1280,8 +1287,9 @@ function flatHits(){
 }
 function beatTimes(){
   if(S._beats && S._beatsFor===S.score) return S._beats;
-  const out=[]; const n=S.score.beatsPerBar;
+  const out=[];
   for(const b of S.score.bars){
+    const n=barBeats(b);
     const span=(b.endTime-b.startTime)/n;
     for(let k=0;k<n;k++) out.push({t:b.startTime+k*span, down:k===0});
   }
@@ -1451,7 +1459,7 @@ function onSystemClick(ev, div, geo){
     return;
   }
 
-  const ticksPerBar=S.score.ticksPerBar;
+  const ticksPerBar=barTicks(g.bar);
   const slot=PPQ/(g.bar.subdivision||4);
   const frac=clamp((x-g.noteX0)/Math.max(1,(g.noteX1-g.noteX0)),0,0.999);
   const tick=clamp(Math.round(frac*ticksPerBar/slot)*slot, 0, ticksPerBar-slot);
