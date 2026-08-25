@@ -770,8 +770,10 @@ async def _revalidate_app_shell(request, call_next):
             _last_touch[parts[3]] = time.time()
     resp = await call_next(request)
     path = request.url.path
-    if path == "/" or path.endswith((".js", ".css", ".html", ".svg")):
-        resp.headers["Cache-Control"] = "no-cache"
+    if path == "/" or path.endswith((".js", ".css", ".html", ".svg", ".json")):
+        # no-store, not no-cache: Cloudflare's edge kept serving an old app.js
+        # after deploys. Assets are also versioned (app.js?v=<build>).
+        resp.headers["Cache-Control"] = "no-store"
     elif path.startswith("/api/jobs/") and path.endswith((".mp3", ".ogg")):
         resp.headers["Cache-Control"] = "private, max-age=86400"
     return resp
