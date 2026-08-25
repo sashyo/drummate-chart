@@ -9,7 +9,10 @@ import gzip, json, re, sys, urllib.request
 UA = {"User-Agent": "Mozilla/5.0"}
 GM = {35: "K", 36: "K", 38: "S", 40: "S", 37: "S", 39: "S",       # kick, snare, rim, clap
       42: "x", 44: "x", 46: "x", 49: "x", 51: "x", 52: "x", 53: "x", 55: "x", 57: "x", 59: "x",
-      41: "T", 43: "T", 45: "T", 47: "T", 48: "T", 50: "T"}
+      41: "T", 43: "T", 45: "T", 47: "T", 48: "T", 50: "T",
+      # Guitar Pro's extended drum map, which Songsterr keeps: 91 snare (hit),
+      # 92/93 hat half-open / ride edge, 97/98 snare (side stick / rim)
+      91: "S", 92: "x", 93: "x", 97: "S", 98: "S"}
 
 def get(url, binary=False):
     # curl: songsterr answers with HTTP 103 Early Hints, which urllib rejects
