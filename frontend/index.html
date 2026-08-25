@@ -118,7 +118,10 @@
   <aside class="wait-ad" id="wait-ad" aria-label="While you wait">
     <span class="wait-ad-tag">meanwhile&hellip;</span>
     <div class="wait-ad-body">
-      <video id="wait-ad-video" muted loop playsinline preload="none" poster="" aria-hidden="true"></video>
+      <div class="wait-ad-screen">
+        <video id="wait-ad-video" loop playsinline preload="none" aria-label="DrumMate demo reel"></video>
+        <button id="wait-ad-mute" class="wait-ad-mute" type="button" aria-pressed="false" title="Toggle sound">&#128266; sound on</button>
+      </div>
       <div class="wait-ad-copy">
         <div class="wait-ad-kicker">Meet DrumMate</div>
         <h3 id="wait-ad-title">You drum, the band follows.</h3>

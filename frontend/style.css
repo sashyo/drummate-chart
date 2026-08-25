@@ -185,7 +185,8 @@ input[type=range]{accent-color:var(--pink); width:100%}
   font-family:var(--f-marker); font-size:.95rem; color:#000; background:var(--yellow);
   border:3px solid #000; box-shadow:var(--shadow-xs); padding:.3rem .7rem}
 .wait-ad-body{display:flex; gap:18px; align-items:center; flex-wrap:wrap}
-.wait-ad-body video{width:280px; max-width:100%; aspect-ratio:16/9; background:#000;
+.wait-ad-screen{position:relative; width:280px; max-width:100%}
+.wait-ad-screen video{width:100%; max-width:100%; aspect-ratio:16/9; background:#000;
   border:3px solid #000; box-shadow:var(--shadow-xs); flex:none}
 .wait-ad-copy{flex:1; min-width:260px}
 .wait-ad-kicker{font-family:var(--f-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--pink)}
@@ -197,6 +198,10 @@ input[type=range]{accent-color:var(--pink); width:100%}
 .wait-ad-dots{margin-top:10px; display:flex; gap:6px}
 .wait-ad-dots i{width:8px; height:8px; background:var(--line); display:inline-block}
 .wait-ad-dots i.on{background:var(--pink)}
+.wait-ad-mute{position:absolute; right:6px; bottom:6px; padding:3px 8px; font-family:var(--f-mono); font-size:.68rem;
+  text-transform:uppercase; letter-spacing:.06em; background:var(--yellow); color:#141414; border:2px solid #141414;
+  box-shadow:2px 2px 0 #141414; cursor:pointer}
+.wait-ad-mute[aria-pressed="true"]{background:var(--panel); color:var(--white); border-color:var(--white); box-shadow:2px 2px 0 var(--white)}
 @media print{ .wait-ad{display:none} }
 
 /* ── score header ───────────────────────────────────────── */

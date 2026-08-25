@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-25d';
+const APP_BUILD='2026-08-25e';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -194,7 +194,16 @@ const AD_SLIDES=[
 function startAd(){
   const t=$('#wait-ad-title'), x=$('#wait-ad-text'), dots=$('#wait-ad-dots'), v=$('#wait-ad-video');
   if(!t) return;
-  if(v && !v.src){ v.src='drummate-demo.mp4'; v.play().catch(()=>{}); }
+  if(v && !v.src){
+    v.src='drummate-demo.mp4?v=2'; v.volume=0.8;
+    const mute=$('#wait-ad-mute');
+    const paint=()=>{ if(mute){ mute.innerHTML=v.muted?'&#128263; sound off':'&#128266; sound on'; mute.setAttribute('aria-pressed', v.muted?'true':'false'); } };
+    // the user has already clicked "Chart it", so most browsers allow sound;
+    // Safari/iOS may still refuse - then start silent and let the button unmute
+    v.muted=false;
+    v.play().then(paint).catch(()=>{ v.muted=true; v.play().catch(()=>{}); paint(); });
+    if(mute) mute.onclick=()=>{ v.muted=!v.muted; if(!v.muted && v.paused) v.play().catch(()=>{}); paint(); };
+  } else if(v){ v.play().catch(()=>{}); }
   let i=0;
   dots.innerHTML=AD_SLIDES.map((_,k)=>`<i class="${k===0?'on':''}"></i>`).join('');
   clearInterval(S.adTimer);
