@@ -246,10 +246,19 @@ def _cleanup(bars: list[QBar], bpb: int) -> None:
     # otherwise strong - a genuinely soft kick line keeps its notes.
     kv = [x.velocity for b in bars for x in b.notes if x.inst == "kick"]
     if kv and float(np.median(kv)) >= 0.3:
-        for bar in bars:
+        kslots = [{x.tick for x in b.notes if x.inst == "kick"} for b in bars]
+        for bi, bar in enumerate(bars):
             snare_ticks = {x.tick for x in bar.notes if x.inst == "snare"}
+            near = set()
+            if bi:
+                near |= kslots[bi - 1]
+            if bi + 1 < len(bars):
+                near |= kslots[bi + 1]
+            # a floor kick under a snare is bleed; a floor kick that repeats
+            # nowhere nearby is a stray (a feathered kick pattern repeats)
             bar.notes = [x for x in bar.notes if not (
-                x.inst == "kick" and x.velocity <= 0.06 and x.tick in snare_ticks)]
+                x.inst == "kick" and x.velocity <= 0.06
+                and (x.tick in snare_ticks or x.tick not in near))]
 
     # A floor-velocity snare (below its own local 10th percentile) is either
     # a ghost note or bleed. Ghost grooves REPEAT - the same slot carries a
