@@ -38,11 +38,11 @@ are under [Accuracy](#accuracy).
 **Easiest — one file to run.** Download the ZIP from the
 [latest release](https://github.com/sashyo/drummate-chart/releases/latest), unzip it, then:
 
-| | double-click | needs |
+| | double-click | installs for you if missing |
 |---|---|---|
-| Windows | `start.bat` | nothing — it installs Python (via winget) and ffmpeg itself if missing |
-| macOS | `start.command` | Python 3.10+ (python.org or Homebrew); ffmpeg via Homebrew if missing |
-| Linux | `start.sh` | Python 3.10+, ffmpeg (`apt install ffmpeg`) |
+| Windows | `start.bat` | Python, ffmpeg, Node.js (winget / direct download) |
+| macOS | `start.command` | Homebrew, Python, ffmpeg, Node.js (asks for your password once) |
+| Linux | `start.sh` | Python, ffmpeg, Node.js via apt / dnf / pacman (asks for sudo) |
 
 The first run installs the Python packages into the app folder (5–10 minutes, ~1.5 GB) and the
 first chart downloads the separation models (~500 MB). After that it starts in seconds and opens
@@ -55,8 +55,6 @@ git clone https://github.com/sashyo/drummate-chart.git
 cd drummate-chart
 ./run.sh                      # same as start.sh, without opening the browser
 ```
-
-Node.js is only needed for YouTube links (yt-dlp uses it as a JavaScript runtime).
 
 **Links, on your own machine.** Running it locally is personal use, so you can turn link fetching on:
 
