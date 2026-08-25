@@ -1,196 +1,125 @@
 # DrumMate Chart
 
-The DrumMate family's transcriber — paste a YouTube link, get a drum chart you can practise with — plus an isolated
-drum track to listen to and a drums-removed backing track to play along to.
+**Drop in a song, get drum notation you can practise with** — plus the isolated drum track and a
+drums-removed backing track to play along to.
 
-![the app](docs/screenshot.png)
+Built by the people behind **[DrumMate](https://drummate.app)**, the live band for your electronic drum
+kit: you drum, the band follows. This is the sibling for learning the song first.
+
+![DrumMate Chart](docs/screenshot.png)
+
+Live: **https://chart.drummate.app** (free, upload your own audio).
 
 ## What it does
 
-1. **Fetches** the audio with `yt-dlp` (or takes a file you drop on the page).
-2. **Separates the kit** from the mix with Demucs, and renders two MP3s:
-   `drums.mp3` (the kit on its own) and `backing.mp3` (everything but the kit).
-3. **Finds the pulse** — tempo, beat grid and downbeats. Everything downstream
-   works in beat space, so a track that drifts in tempo still lands on a sane grid.
-4. **Detects and identifies every hit.** Each drum gets its own detection stream,
-   so a kick, snare and hi-hat landing on the same tick all survive.
-5. **Quantises** to a musical grid, choosing per bar between straight 8ths/16ths/
-   32nds and triplets, and detecting swing.
-6. **Engraves** standard drumset notation, and exports MIDI and MusicXML.
+1. **Separates the kit** from the mix — Demucs, then the MDX23C DrumSep model splits the kit into
+   kick / snare / toms / hi-hat / ride / crash.
+2. **Finds the pulse from the drums themselves** — period from the kick/snare autocorrelation, an
+   octave/4:3 judge that scores candidates on whether the bars look like bars, a phase follower that
+   only real backbeat strokes may move, and a linear-drift fold for songs recorded without a click.
+3. **Detects every hit per stem**, with bleed rules learned by comparing against published charts:
+   a floor-velocity kick under a snare is bleed unless the song doubles its backbeat; a stray ghost
+   that repeats nowhere nearby is noise; and so on.
+4. **Quantises** per bar (8ths / 16ths / 32nds / triplets, swing detection), then snaps weak
+   deviations to the section's groove while leaving fills exactly as played — the way a
+   transcriber writes a chart.
+5. **Engraves** proper two-voice drumset notation, with a legend, a simple mode, a loop-practice
+   tool and a teach mode that breaks the groove down and calls the hits out loud.
+6. **Exports** MIDI, MusicXML and a Clone Hero package (Pro Drums).
 
-## Running it
+Measured against full published transcriptions (Songsterr, tTabs) it matches **90–98 % of bars on
+kick and snare** for clean studio recordings (Billie Jean 140/143 kick, 136/143 snare; Every
+Breath You Take 110/112 kick). Hi-hats are where published charts disagree with each other; live
+bands without a click are where it still struggles. Details and the tools to measure it yourself
+are under [Accuracy](#accuracy).
 
-Needs Python 3.10+ and `ffmpeg`.
+## Quick start (your own machine)
+
+Needs Python 3.12, `ffmpeg`, and Node.js (only if you use YouTube links: yt-dlp needs a JavaScript runtime).
 
 ```bash
-./run.sh            # first run installs everything, then serves on :8000
+git clone https://github.com/sashyo/drummate-chart.git
+cd drummate-chart
+./run.sh                      # first run creates .venv and installs everything, then serves on :8000
 ```
 
-Open <http://127.0.0.1:8000>. The first transcription also downloads the Demucs
-model (~80 MB, cached afterwards). A 30-second excerpt takes roughly 20 seconds
-on CPU; a full song a few minutes.
+Open <http://127.0.0.1:8000>, drop an audio file on the page. The first chart also downloads the
+separation models (~500 MB, cached afterwards).
 
-## Using it
+**Links, on your own machine.** Running it locally is personal use, so you can turn link fetching on:
 
-- **Paste a link** and press Transcribe. Under *Analysis options* you can trim to
-  a section, force a tempo or time signature, change the finest note value, and
-  adjust detection sensitivity.
-- **Four playback sources**: the original video, the isolated drums, the backing
-  track without drums, or the notation played back as a synth kit. The score
-  follows along bar by bar.
-- **Slow it down** with the speed slider, turn on a **click**, and **loop a bar
-  range** by clicking a bar (shift-click to set the end).
-- **Play it in Clone Hero**: the Clone Hero button downloads a ready song
-  package — Rock Band-style `notes.mid` with Pro Drums cymbal/tom markers,
-  all four difficulties (Expert is the full transcription; Hard/Medium/Easy
-  are progressive reductions), accents and ghosts, a per-bar tempo map synced
-  to the audio, plus the backing track as `song.mp3` and the isolated kit as
-  `drums.mp3` so misses mute the drums. Unzip it into Clone Hero's `Songs`
-  folder and hit Scan Songs.
-- **Teach me** finds the song's core groove (per-slot voting across bars, so
-  detection noise doesn't hide the pattern), shows it as the classic layered
-  lesson — right hand first, then add the snare, then the kick, with the
-  count written under the notes — and generates practice tips from the
-  transcription itself: which limb plays what and where, open-hat and
-  ghost-note warnings, where the fills live, and how to work with the speed
-  slider, loop and click. Every card is playable: press \u25b6 to hear that
-  layer looped through the built-in kit at 50-100% speed, with a count-in,
-  a click, and a moving playhead \u2014 including the song's main fill and a
-  "groove \u00d73 + fill" rotation, the way fills are actually practised. An
-  optional coach calls each hit out loud ("kick\u2026 hat\u2026 open hat\u2026") using
-  pre-rendered words scheduled sample-accurately through WebAudio, timed to
-  land just before each stroke \u2014 speech synthesis was tried first and its
-  50-300 ms jitter made it musically unusable.
-- **Simple mode** reduces the chart to a plain kick / snare / hi-hat groove on an
-  8th-note grid, with no ornaments — the version you learn first.
-- **Thin out a busy chart** with the *Detail* slider — it hides the quietest hits
-  per drum, which is the quickest cure when a dense mix over-detects. It changes
-  what you see and print, not the exported MIDI.
-- **Fix mistakes**: turn on *Edit mode*, pick a drum, and click the staff to add
-  it — click it again to remove it. The MIDI and MusicXML re-export automatically.
-- **Print** the chart, or open the MusicXML in MuseScore for a polished PDF.
-
-## How the drums are told apart
-
-Two kinds of evidence are combined:
-
-- **Partially-fixed NMF.** The spectrogram is decomposed against seeded kick,
-  snare and hi-hat templates plus free components that soak up everything else.
-  Because the decomposition is additive, overlapping drums separate cleanly —
-  this is what makes simultaneous hits work.
-- **Band-limited spectral flux**, which is sharper in time than NMF and drives
-  the tom and cymbal streams.
-
-Each stream is then gated on measured features: sub-band flux for the kick,
-low-mid ring time and pitch for toms (toms ring, the kick does not), and
-high-band decay for the cymbals — short is a closed hat, long and loud and
-one-off is a crash, long and recurring is a ride. Toms are assigned to
-high/mid/floor by clustering their pitches across the whole song, so it adapts
-to the kit rather than assuming fixed frequencies.
-
-Accuracy on a synthetic test with known ground truth (`F1`, 117 hits):
-
-| kick | snare | hi-hat | toms | overall |
-|------|-------|--------|------|---------|
-| 0.93 | 0.90  | 0.94   | 0.67–1.00 | **0.91** |
-
-**Neural kit split (default detector).** After Demucs isolates the kit, the
-MDX23C DrumSep model splits it again into kick / snare / toms / hi-hat /
-ride / crash stems, and detection becomes per-stem onset picking instead
-of spectral classification. On the hard fixture this lifts F1 from 0.89 to
-**0.96** (hi-hat and snare precision 1.00, kick recall 1.00). It costs about
-1x realtime on CPU on top of Demucs; "Fast spectral" in Analysis options
-skips it.
-
-**The grid comes from the drums.** Generic beat trackers lock onto guitar
-chugs and off-beat hats and drift between the true tempo and 4:3 or 2:1
-errors - which writes every correct hit on the wrong count, the single
-most damaging failure a chart can have. The tempo is now taken from the
-kick/snare onset autocorrelation, the octave is chosen by which candidate
-produces bar-like bars (snares concentrated on two beat classes, all four
-classes populated - this is what recognises a 172 BPM drum & bass track
-that reads as 86), period and phase are refined jointly, slow drift is
-tracked in windows, and the downbeat is picked with a backbeat prior.
-
-A second, harder fixture with realistic broadband hi-hats (the kind whose
-1.5–7 kHz sizzle overlaps the snare's signature) scores F1 0.89, with snare
-precision 1.00. The key ideas, each measured before being trusted:
-
-- **A snare must *arrive***: in a wash of 16th-note hats the 1.5–6 kHz band
-  never goes quiet, so a hat stroke barely rises above its own background —
-  but a snare's wire burst still jumps an order of magnitude, together with a
-  shell-band (200–500 Hz) rise the hats cannot produce.
-- **A kick must arrive in the low band** — a jump relative to a moment earlier,
-  so neither a bright transient nor the previous kick's decaying tail counts.
-- **Open vs closed hi-hat is a trough test**: a closed hat always leaves a
-  trough in the high band before the next stroke refills it; an open hat or
-  crash rings straight through. This needs no decay-time measurement, which
-  dense playing censors.
-
-On top of detection, a conservative engraving cleanup keeps the chart looking
-like a chart: a lone one-slot hole inside an otherwise continuous cymbal run is
-repaired (a drummer does not skip one 16th mid-run; genuinely sparse patterns
-are never touched), flams require two solid strokes rather than detection
-jitter, rests are always spelled undotted, and dense bars are given
-proportionally more width. The *Detail* view defaults to 90%%, hiding only the
-weakest tail of detections; 100%% is one nudge away.
-
-Cymbal *type* beyond that (ride vs crash) remains the least certain call, and
-automatic transcription of a dense mix is still a strong starting point rather
-than a finished chart — hence *Simple*, *Detail* and *Edit mode*.
-
-## Notation conventions
-
-Standard drumset notation on a 5-line staff with a percussion clef. Stems up for
-the hands, stems down for the feet. Cymbals use `x` noteheads; accents are `>`,
-open hi-hats are `o`, ghost snare notes are in parentheses.
-
-```
- A5  ---  crash            C5  ---  snare
- G5  ---  hi-hat           A4  ---  floor tom
- F5  ===  ride             F4  ---  bass drum
- E5  ---  high tom         D4  ---  hi-hat foot
- D5  ===  mid tom
+```bash
+DRUMS_LINKS=1 DRUMS_ALLOW_YOUTUBE=1 ./run.sh
 ```
 
-## Layout
+The public site is deliberately upload-only and deletes your audio the moment the chart is done
+(see [Terms](frontend/terms.html)). Please don't run a public instance that fetches from YouTube;
+that's a breach of their terms and, served to strangers, a distribution of other people's recordings.
 
-```
-backend/
-  server.py              FastAPI: jobs, files, health, re-export
-  pipeline/
-    fetch.py             yt-dlp download → normalised 44.1 kHz wav
-    separate.py          Demucs drum stem + drums.mp3 / backing.mp3
-    rhythm.py            tempo, beat grid, downbeats
-    onsets.py            NMF + flux detection and classification
-    quantize.py          snap to grid, pick subdivision, detect swing
-    score.py             hits → voices, durations, rests, tuplets
-    exports.py           MIDI and MusicXML writers
-    rebuild.py           re-engrave after browser edits
-    drums.py             the kit map (staff position, notehead, GM note)
-frontend/
-  index.html, style.css
-  app.js                 layout engine, VexFlow rendering, playback, editing
-  vendor/vexflow.js      MIT, bundled
-```
-
-The browser re-runs the same beat-by-beat layout the exporter uses, so edits
-re-engrave instantly without a round trip to the server.
+**GPU.** On CPU a 4-minute song takes 10–20 minutes. With an NVIDIA card it takes about 4, and the
+fine-tuned Demucs model becomes the default. Create a CUDA environment (`.venv-cuda`, torch build
+matching your driver — see [DEPLOY.md](DEPLOY.md#2-code-and-python-environments)); `run.sh` uses it
+when present. A 3 GB card is enough.
 
 ## Configuration
 
-| variable | meaning |
-|---|---|
-| `DRUMS_MAX_SECONDS` | cap on analysed audio length (default 600) |
-| `DRUMS_YT_CLIENTS` | yt-dlp player clients to try, in order |
-| `DRUMS_COOKIES_FROM_BROWSER` | e.g. `chrome`, for age-restricted videos |
-| `DRUMS_COOKIE_FILE` | path to a `cookies.txt` export |
-| `DRUMS_DATA` | where jobs and caches are written |
+| variable | default | meaning |
+|---|---|---|
+| `DRUMS_LINKS` | `1` | accept links (direct audio files). `0` = upload only |
+| `DRUMS_ALLOW_YOUTUBE` | `0` | fetch YouTube/streaming links (personal use on your own machine) |
+| `DRUMS_YOUTUBE_WITH_CONSENT` | `1` | when YouTube is off, allow it behind a rights checkbox recorded on the job |
+| `DRUMS_WORKERS` | `2` | transcriptions in parallel |
+| `DRUMS_DEVICE` | auto | `cpu` to ignore the GPU |
+| `DRUMS_SEPARATION` | auto | `htdemucs` to skip the fine-tuned model on a GPU |
+| `DRUMS_MAX_SECONDS` | `600` | cap on analysed audio per job |
+| `DRUMS_DATA` | `./data` | where jobs, caches and the usage counter live |
+| `DRUMS_KEEP_SOURCES` | `0` | `1` keeps source audio and separation caches (default: deleted when the job ends) |
+| `DRUMS_AUDIO_TTL_HOURS` | `6` | hard cap on how long a chart's drum/backing tracks exist |
+| `DRUMS_SESSION_IDLE_MIN` | `20` | a chart's audio is released when its page is closed, or after this idle time |
 
-If YouTube starts refusing downloads, `DRUMS_YT_CLIENTS` is the first knob to
-turn; which clients work changes over time.
+## How the pieces fit
 
-## Notes
+```
+backend/pipeline/
+  fetch.py      audio in (upload / link / yt-dlp) -> 44.1 kHz wav
+  separate.py   Demucs drums stem + backing            gpu.py: one inference at a time, CPU fallback
+  drumsep.py    MDX23C kit split (6 stems, cached by audio content)
+  onsets.py     per-stem onset picking, velocities, open-hat test, toms by pitch
+  rhythm.py     tempo from the drums: autocorrelation, octave judge, phase follower, drift fold
+  quantize.py   per-bar grid choice, de-lag, bleed rules, section consolidation
+  score.py      notation model (two voices, rests, tuplets)  ->  score.json
+  exports.py    MIDI, MusicXML          clonehero.py   Clone Hero package
+backend/server.py   FastAPI: jobs, queue, persistence, usage counter, janitor
+frontend/           vanilla JS + VexFlow: engraving, playback, loop, teach mode, editing
+tools/              accuracy tooling (below)
+```
 
-Transcriptions are for private practice. Respect the rights of the material you
-run through it, and whatever terms apply to the site you fetch from.
+## Accuracy
+
+Everything in the engine is measured against published charts, bar by bar, and changes ship only
+when they win.
+
+```bash
+.venv/bin/python tools/songsterr_tab.py "Michael Jackson Billie Jean" bj.json   # a published drum track as bars
+.venv/bin/python tools/compare_tab.py data/jobs/<id>/score.json bj.json         # per-bar agreement + deviation clusters
+.venv/bin/python tools/run_references.py                                        # the reference suite (tools/references.json)
+.venv/bin/python tools/requant.py data/jobs/<id>                                # re-run grid + quantiser from a saved detection (seconds)
+.venv/bin/python tools/learn_songs.py songs.json data/learn                     # widen the set: fetch tabs, transcribe, compare
+.venv/bin/python tools/train_onsets.py data/learn                               # per-onset classifier, leave-one-song-out vs the rules
+```
+
+If you find a bar that's wrong, that's the most useful thing you can send: the song, the bar number,
+and what should be there. Every rule in `quantize.py` came from exactly that.
+
+## Deploying
+
+[DEPLOY.md](DEPLOY.md) is the full runbook for a public instance behind a Cloudflare Tunnel:
+environments, models, data, verification, cutover and autostart. `Dockerfile` / `docker-compose.yml`
+build a CPU-only container.
+
+## Credits
+
+- Separation: [Demucs](https://github.com/facebookresearch/demucs) (MIT) and the MDX23C DrumSep
+  model by aufr33 & jarredou via [audio-separator](https://github.com/nomadkaraoke/python-audio-separator).
+- Engraving: [VexFlow](https://github.com/0xfe/vexflow).
+- Made by [DrumMate](https://drummate.app). If the chart got you through the song, go play it with a band that follows you.

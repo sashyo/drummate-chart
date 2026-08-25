@@ -7,8 +7,9 @@ version and command below is what the current deployment uses.
 ## What the site is
 
 - **App**: FastAPI backend (`backend/server.py`) + static frontend (`frontend/`), one process, port 8000.
-  It fetches YouTube audio (yt-dlp), separates drums (Demucs, then the MDX23C DrumSep
-  kit-splitter), derives tempo/grid from the drums, quantises, engraves, exports.
+  It takes uploaded audio (links optional; the public site is upload-only), separates drums
+  (Demucs, then the MDX23C DrumSep kit-splitter), derives tempo/grid from the drums, quantises,
+  engraves, exports.
 - **Public URL**: https://chart.drummate.app through a **locally-managed Cloudflare Tunnel**
   named `drummate-chart` that forwards to `http://localhost:8000` on the PC. No Worker,
   no reverse proxy, no open ports.
@@ -50,7 +51,7 @@ Tested on Ubuntu 24.04 (WSL2 or native). Needs:
 
 ## 2. Code and Python environments
 
-    git clone https://github.com/sashyo/drummate-chart.git ~/drum-notation   # private repo; needs the owner's GitHub access
+    git clone https://github.com/sashyo/drummate-chart.git ~/drum-notation
     cd ~/drum-notation
     ./run.sh   # creates .venv (CPU torch + demucs + audio-separator), then starts the app; Ctrl-C after it prints the URL
 
@@ -109,7 +110,10 @@ Environment knobs (set in the shell that runs the script, or in the script):
 | `DRUMS_SEPARATION` | auto | `htdemucs` to skip the fine-tuned model |
 | `DRUMS_MAX_SECONDS` | 600 | cap on analysed audio per job |
 | `DRUMS_DATA` | `<repo>/data` | where jobs/cache/stats live |
-| `DRUMS_ALLOW_YOUTUBE` | 0 | the public site takes uploads and direct audio links only; `1` re-enables YouTube/streaming fetches for a private build |
+| `DRUMS_LINKS` | 1 (start-chart.sh sets 0) | accept links at all; the public site is upload-only |
+| `DRUMS_ALLOW_YOUTUBE` | 0 | fetch YouTube/streaming links (personal use on your own machine) |
+| `DRUMS_YOUTUBE_WITH_CONSENT` | 1 (start-chart.sh sets 0) | with YouTube off, allow it behind a rights checkbox recorded on the job |
+| `DRUMS_SESSION_IDLE_MIN` | 20 | a chart's drum/backing tracks are released when its page closes, or after this idle time |
 | `DRUMS_AUDIO_TTL_HOURS` | 6 | per-job drums/backing mp3s (what the chart plays) are deleted after this; charts/MIDI/MusicXML are kept |
 | `DRUMS_KEEP_SOURCES` | 0 | `1` disables delete-on-use (sources, decoded wav and separation caches are otherwise removed the moment a job ends) — private builds only |
 | `DRUMS_COOKIE_FILE` / `DRUMS_COOKIES_FROM_BROWSER` | unset | yt-dlp cookies, only relevant with `DRUMS_ALLOW_YOUTUBE=1` |
@@ -120,7 +124,7 @@ Environment knobs (set in the shell that runs the script, or in the script):
     curl -s https://chart.drummate.app/api/health          # same, through the tunnel
     curl -s https://chart.drummate.app/api/stats | head -c 300   # counter restored ("allTime" numbers non-zero)
     curl -s -X POST localhost:8000/api/upload -F "file=@some.wav" -F 'options={"renderAudio":true}'
-    # (the public site takes uploads and direct audio links; a YouTube link answers 403 unless DRUMS_ALLOW_YOUTUBE=1)
+    # (the public site is upload-only: any link answers 400; DRUMS_LINKS=1 / DRUMS_ALLOW_YOUTUBE=1 for a private build)
     # poll /api/jobs/<jobId> until "done" (~1 min for a 40 s clip on a GPU); then open the site and load it.
     # afterwards: the upload and its caches must be gone from data/cache (delete-on-use), the job dir keeps
     # score.json / drums.mid / drums.musicxml plus drums.mp3 / backing.mp3 for a few hours.
