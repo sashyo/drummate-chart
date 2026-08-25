@@ -178,6 +178,27 @@ input[type=range]{accent-color:var(--pink); width:100%}
 .steps li.done{color:var(--white)} .steps li.done::before{content:"●"; color:var(--lime)}
 .steps li.active{color:var(--pink)} .steps li.active::before{content:"◐"; color:var(--pink)}
 
+.wait-ad{position:relative; max-width:760px; margin:26px auto 0; background:var(--panel);
+  border:var(--border-w); box-shadow:var(--shadow-pink); padding:18px 20px 16px;
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px)}
+.wait-ad-tag{position:absolute; top:-1rem; left:5%; transform:rotate(-4deg);
+  font-family:var(--f-marker); font-size:.95rem; color:#000; background:var(--yellow);
+  border:3px solid #000; box-shadow:var(--shadow-xs); padding:.3rem .7rem}
+.wait-ad-body{display:flex; gap:18px; align-items:center; flex-wrap:wrap}
+.wait-ad-body video{width:280px; max-width:100%; aspect-ratio:16/9; background:#000;
+  border:3px solid #000; box-shadow:var(--shadow-xs); flex:none}
+.wait-ad-copy{flex:1; min-width:260px}
+.wait-ad-kicker{font-family:var(--f-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.1em; color:var(--pink)}
+.wait-ad h3{margin:.15rem 0 .35rem; font-family:var(--f-display); font-weight:400; font-size:1.55rem;
+  letter-spacing:1px; text-transform:uppercase; line-height:1; min-height:2.1em}
+.wait-ad p{margin:0 0 .8rem; color:var(--muted); min-height:3.1em}
+.wait-ad p em{color:var(--white); font-style:normal}
+.wait-ad-btn{text-decoration:none; display:inline-block}
+.wait-ad-dots{margin-top:10px; display:flex; gap:6px}
+.wait-ad-dots i{width:8px; height:8px; background:var(--line); display:inline-block}
+.wait-ad-dots i.on{background:var(--pink)}
+@media print{ .wait-ad{display:none} }
+
 /* ── score header ───────────────────────────────────────── */
 .score-head{display:flex; justify-content:space-between; align-items:flex-start;
   gap:16px; flex-wrap:wrap; margin-bottom:14px}

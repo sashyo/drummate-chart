@@ -5,7 +5,7 @@
  * so edits re-engrave instantly without a round trip.
  */
 'use strict';
-const APP_BUILD='2026-08-25b';
+const APP_BUILD='2026-08-25d';
 const ENGINE_CURRENT=3;
 
 const VF = Vex.Flow;
@@ -184,10 +184,33 @@ function collectOptions(){
   };
 }
 
+/* ── the wait-time ad: real DrumMate feature copy, rotating ─────────── */
+const AD_SLIDES=[
+  ['You drum. The band follows.', 'No backing track. Bass, keys and synth bend to <em>your</em> groove in real time \u2014 play a fill, push the tempo, lay back, the band stays glued to you.'],
+  ['Follow tempo.', 'BPM, phase, swing and energy update as you play. Slow it to woodshed, crank it to double-time \u2014 any tempo, any time.'],
+  ['Shape songs. You call the shots.', 'Pick style, key and progression; fills can move sections. Mute keys, add synth, strip to just bass \u2014 your kit, your rules.'],
+  ['A whole band, no bandmates.', 'Analog synth, tine e-piano, FM, 808 built in \u2014 or bring your own SoundFonts and samples. Plug in USB MIDI and drum.'],
+];
+function startAd(){
+  const t=$('#wait-ad-title'), x=$('#wait-ad-text'), dots=$('#wait-ad-dots'), v=$('#wait-ad-video');
+  if(!t) return;
+  if(v && !v.src){ v.src='drummate-demo.mp4'; v.play().catch(()=>{}); }
+  let i=0;
+  dots.innerHTML=AD_SLIDES.map((_,k)=>`<i class="${k===0?'on':''}"></i>`).join('');
+  clearInterval(S.adTimer);
+  S.adTimer=setInterval(()=>{
+    i=(i+1)%AD_SLIDES.length;
+    t.textContent=AD_SLIDES[i][0]; x.innerHTML=AD_SLIDES[i][1];
+    [...dots.children].forEach((d,k)=>d.classList.toggle('on',k===i));
+  }, 7000);
+}
+function stopAd(){ clearInterval(S.adTimer); const v=$('#wait-ad-video'); if(v) v.pause(); }
+
 function showView(name){
   for(const v of ['setup','progress','score'])
     $('#view-'+v).classList.toggle('hidden', v!==name);
   $('#btn-new').classList.toggle('hidden', name==='setup');
+  if(name==='progress') startAd(); else stopAd();
 }
 
 async function startJob(){
@@ -648,7 +671,7 @@ function grooveTips(core){
   const fills=S.score.bars.filter(b=>b.hits.some(h=>(CLASS_MAP[h.inst]||'')==='tom')).map(b=>b.number);
   if(fills.length) tips.push(`Fills live in bars <b>${fills.slice(0,6).join(', ')}${fills.length>6?'\u2026':''}</b>. Learn the groove first; add fills last.`);
   tips.push(`Loop one bar (click it; shift-click extends), turn on <b>Click</b>, and stay with a loop until you can hold it for a minute without thinking.`);
-  tips.push(`Solid? Take it to a band: <a href="https://drummate.app/?utm_source=chart&utm_medium=app&utm_campaign=teach-tip" target="_blank" rel="noopener"><b>DrumMate</b></a> turns your e-kit into a live band that follows you.`);
+  tips.push(`Solid? Go drum with a band: <a href="https://drummate.app/?utm_source=chart&utm_medium=app&utm_campaign=teach-tip" target="_blank" rel="noopener"><b>DrumMate</b></a> is a live band for your e-kit that follows you.`);
   return tips;
 }
 
