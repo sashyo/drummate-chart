@@ -22,9 +22,13 @@ def get(url, binary=False):
 def find_song(query):
     songs = json.loads(get("https://www.songsterr.com/api/songs?pattern=" + urllib.parse.quote(query)))
     for s in songs:
-        for i, t in enumerate(s.get("tracks", [])):
-            if t.get("instrument") == "Drums" or str(t.get("hash", "")).startswith("drums"):
-                return s["songId"], i, s["artist"], s["title"]
+        # the original recording's tab is listed first; take its LAST drum
+        # track (a second 'Drums' track is usually percussion/overdubs
+        # placed after the kit... but the kit is the first one)
+        drums = [i for i, t in enumerate(s.get("tracks", []))
+                 if t.get("instrument") == "Drums" or str(t.get("hash", "")).startswith("drums")]
+        if drums:
+            return s["songId"], drums[0], s["artist"], s["title"]
     raise SystemExit("no drum track found for " + query)
 
 def fetch_track(song_id, track_index):
