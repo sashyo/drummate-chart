@@ -15,8 +15,10 @@ if ! curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
   for i in $(seq 1 40); do sleep 0.5; curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1 && break; done
 fi
 
-# 2. the tunnel
-if [ -f "$HOME/.cloudflared/chart-token" ]; then
+# 2. the tunnel (skip if one is already connected - this script is also run by systemd/autostart)
+if ps -eo args | grep -v grep | grep -q "cloudflared tunnel.*drummate-chart\|cloudflared tunnel run --token"; then
+  echo "tunnel already running"
+elif [ -f "$HOME/.cloudflared/chart-token" ]; then
   # dashboard-managed tunnel (connector token pasted into that file)
   setsid nohup "$HOME/.local/bin/cloudflared" tunnel run \
     --token "$(cat "$HOME/.cloudflared/chart-token")" \
