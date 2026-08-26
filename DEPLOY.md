@@ -154,10 +154,16 @@ Rollback is the reverse: start the old script again; the tunnel identity still w
 
 ## 7. Autostart after reboot
 
-- **WSL2 on Windows**: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\DrumMateChart.cmd` containing
-  `wsl.exe -d Ubuntu -u <user> -- bash -lc /home/<user>/drum-notation/deploy/tunnel/start-chart.sh`
-  (runs at logon; no admin needed. `schtasks` from inside WSL is denied.) A reboot wipes WSL's /tmp: keep
-  nothing important there.
+- **WSL2 on Windows** — two layers, because two different things restart:
+  1. *Windows reboot / logon*: `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\DrumMateChart.cmd` containing
+     `wsl.exe -d Ubuntu -u <user> -- bash -lc /home/<user>/drum-notation/deploy/tunnel/start-chart.sh`
+     (runs at logon; no admin needed. `schtasks` from inside WSL is denied.)
+  2. *WSL VM restart without a Windows reboot* (it happens — updates, `wsl --shutdown`, idle): a user
+     systemd unit, `~/.config/systemd/user/drummate-chart.service` (`Type=forking`,
+     `ExecStart=/bin/bash /home/<user>/drum-notation/deploy/tunnel/start-chart.sh`, `WantedBy=default.target`),
+     enabled with `systemctl --user enable drummate-chart` and `loginctl enable-linger <user>`; needs
+     `systemd=true` in `/etc/wsl.conf`. `start-chart.sh` is idempotent (won't start a second server or tunnel).
+  A WSL restart wipes /tmp: keep nothing important there (research scripts live in `data/research`).
 - **Native Linux**: a user systemd unit, e.g. `~/.config/systemd/user/drummate-chart.service` with
   `ExecStart=/home/<user>/drum-notation/deploy/tunnel/start-chart.sh`, `Type=forking`, then
   `systemctl --user enable --now drummate-chart` and `loginctl enable-linger <user>`.
