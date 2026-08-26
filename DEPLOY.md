@@ -98,8 +98,13 @@ If the tunnel identity is NOT available (lost archive, or you want a fresh one):
     cd ~/drum-notation && ./deploy/tunnel/start-chart.sh
 
 That script is idempotent: starts the app on :8000 if `/api/health` isn't answering (using
-`.venv-cuda` if present, with `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`), then runs the
-tunnel. Logs: `/tmp/drummate-chart.log`, `/tmp/drummate-tunnel.log`.
+`.venv-cuda` if present), then runs the tunnel. Logs: `/tmp/drummate-chart.log`, `/tmp/drummate-tunnel.log`.
+
+**The public policy lives in `deploy/tunnel/env.public`** (upload-only, no YouTube, zero
+retention). Every command that starts the live server must `. deploy/tunnel/env.public` first —
+starting `uvicorn` by hand without it brings the site up on the personal-machine defaults
+(links and YouTube on, audio kept). That happened once; check `/api/health` shows
+`"links":false` and `"zeroRetention":true` after any restart.
 
 Environment knobs (set in the shell that runs the script, or in the script):
 
